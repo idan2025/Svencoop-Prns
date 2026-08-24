@@ -15,12 +15,13 @@
 
 use personal_rns::prelude::IDENTITY_SECRET_KEY_LEN;
 
-/// The largest payload we'll hand to `SendToLink` in one chunk. The Reticulum
-/// link MDU depends on the negotiated link MTU (which itself depends on the
-/// interface MTU); the default `BROADCAST_MTU` of 500 yields an MDU around
-/// 415 bytes. We pick 384 to stay safely under the smallest plausible MDU
-/// while leaving headroom for the one-byte framing header.
-pub const MAX_CHUNK: usize = 384;
+/// The largest payload we'll hand to `SendToLink` in one chunk. The vendored
+/// Prns engine's `MAX_SEND_TO_LINK_PLAINTEXT_LEN` is sized for a 2048-byte
+/// link MTU, yielding an MDU of ~1983 bytes. We pick 1900 to stay safely
+/// under that while leaving headroom for the one-byte framing header, so a
+/// typical GoldSrc UDP datagram (~1400 bytes) fits in a single chunk with no
+/// application-layer fragmentation.
+pub const MAX_CHUNK: usize = 1900;
 
 const FLAG_FINAL: u8 = 0x01;
 

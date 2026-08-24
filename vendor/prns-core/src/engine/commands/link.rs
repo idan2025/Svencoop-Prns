@@ -20,7 +20,12 @@ pub enum EstablishLinkRejection {
     NotDirectlyReachable,
 }
 
-pub const MAX_SEND_TO_LINK_PLAINTEXT_LEN: usize = link_mdu(crate::wire::BROADCAST_MTU);
+/// The most plaintext bytes one `SendToLink` call may carry. The RNS wire
+/// protocol negotiates a per-link MTU during link handshake that can be far
+/// larger than `BROADCAST_MTU` (TCP interfaces negotiate up to `MAX_LINK_MTU`),
+/// so we size this to fit a GoldSrc UDP datagram (~1400 bytes) in a single
+/// link packet, avoiding application-layer fragmentation for game traffic.
+pub const MAX_SEND_TO_LINK_PLAINTEXT_LEN: usize = link_mdu(2_048);
 
 pub type SendToLinkPayload = HeaplessVec<u8, MAX_SEND_TO_LINK_PLAINTEXT_LEN>;
 

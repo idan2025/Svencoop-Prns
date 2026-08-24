@@ -258,12 +258,12 @@ async fn run_server(args: ServerArgs) -> Result<()> {
                                     match sock_recv.recv(&mut buf).await {
                                         Ok(n) if n > 0 => {
                                             // Frame the datagram into link-MDU-sized chunks.
-                                            // Fire-and-forget: don't block on per-packet receipt
-                                            // settlement (that can time out on slow ACKs and
-                                            // kill the relay). Pace chunk emission with a tiny
-                                            // sleep so we don't flood the engine's link send
-                                            // queue faster than it can transmit — which is what
-                                            // drops file-transfer packets under bursts.
+                                            // With the vendored Prns engine sized for a 2048-byte
+                                            // link MTU, a GoldSrc datagram (~1400 bytes) fits in
+                                            // a single chunk, so there's no fragmentation burst
+                                            // to pace. Fire-and-forget: don't block on per-packet
+                                            // receipt settlement (that can time out on slow ACKs
+                                            // and kill the relay).
                                             let datagram = &buf[..n];
                                             for chunk in frame(datagram) {
                                                 let payload = SendToLinkPayload::from_slice(&chunk)
@@ -277,9 +277,6 @@ async fn run_server(args: ServerArgs) -> Result<()> {
                                                 {
                                                     return;
                                                 }
-                                                // Pace between chunks so the manifold's egress
-                                                // loop can drain its send queue.
-                                                tokio::time::sleep(Duration::from_millis(1)).await;
                                             }
                                         }
                                         Ok(_) => continue,
