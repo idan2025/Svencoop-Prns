@@ -73,16 +73,21 @@ if "%maxplayers%"=="" set maxplayers=8
 set /p map=Starting map [svencoop1]:
 if "%map%"=="" set map=svencoop1
 
-REM Pre-create the soundcache file for the chosen map. The SC dedicated
-REM server fails to generate these on-the-fly, causing "failed to transmit
-REM file" errors that disconnect clients. Creating an empty file lets the
-REM server send it without error.
+REM Pre-create soundcache files for ALL maps in the maps directory.
+REM The SC dedicated server fails to generate these on-the-fly, causing
+REM "failed to transmit file" errors that disconnect clients. Creating
+REM empty files for every .bsp means map changes mid-game won't break either.
 set SOUNDCACHE_DIR=%SVENDS_DIR%svencoop\maps\soundcache
 if not exist "%SOUNDCACHE_DIR%" mkdir "%SOUNDCACHE_DIR%"
-if not exist "%SOUNDCACHE_DIR%\%map%.txt" (
-    type nul > "%SOUNDCACHE_DIR%\%map%.txt"
-    echo Pre-created empty soundcache: %SOUNDCACHE_DIR%\%map%.txt
+set created=0
+for %%F in ("%SVENDS_DIR%svencoop\maps\*.bsp") do (
+    set mapname=%%~nF
+    if not exist "%SOUNDCACHE_DIR%\%%~nF.txt" (
+        type nul > "%SOUNDCACHE_DIR%\%%~nF.txt"
+        set /a created+=1
+    )
 )
+if %created% GTR 0 echo Pre-created %created% empty soundcache file(s) in %SOUNDCACHE_DIR%
 
 echo.
 echo Starting Sven Co-op dedicated server on port %sc_port%...

@@ -67,15 +67,24 @@ case "$choice" in
         read -rp "Starting map [svencoop1]: " map
         map="${map:-svencoop1}"
 
-        # Pre-create the soundcache file for the chosen map. The SC dedicated
-        # server fails to generate these on-the-fly on Linux/macOS, causing
-        # "failed to transmit file" errors that disconnect clients. Creating
-        # an empty file lets the server send it without error.
+        # Pre-create soundcache files for ALL maps in the maps directory.
+        # The SC dedicated server fails to generate these on-the-fly on
+        # Linux/macOS, causing "failed to transmit file" errors that
+        # disconnect clients. Creating empty files for every .bsp means
+        # map changes mid-game won't break either.
         SOUNDCACHE_DIR="$SVENDS_DIR/svencoop/maps/soundcache"
         mkdir -p "$SOUNDCACHE_DIR" 2>/dev/null
-        if [ ! -f "$SOUNDCACHE_DIR/${map}.txt" ]; then
-            : > "$SOUNDCACHE_DIR/${map}.txt"
-            echo "Pre-created empty soundcache: $SOUNDCACHE_DIR/${map}.txt"
+        created=0
+        for bsp in "$SVENDS_DIR"/svencoop/maps/*.bsp; do
+            [ -f "$bsp" ] || continue
+            mapname=$(basename "$bsp" .bsp)
+            if [ ! -f "$SOUNDCACHE_DIR/${mapname}.txt" ]; then
+                : > "$SOUNDCACHE_DIR/${mapname}.txt"
+                created=$((created + 1))
+            fi
+        done
+        if [ "$created" -gt 0 ]; then
+            echo "Pre-created $created empty soundcache file(s) in $SOUNDCACHE_DIR"
         fi
 
         echo
