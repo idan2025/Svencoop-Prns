@@ -213,7 +213,7 @@ async fn run_server(args: ServerArgs) -> Result<()> {
                     if router_senders.read().await.contains_key(&link_id) {
                         continue;
                     }
-                    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(64);
+                    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(256);
                     router_senders.write().await.insert(link_id, tx);
 
                     let senders = router_senders.clone();
@@ -257,9 +257,13 @@ async fn run_server(args: ServerArgs) -> Result<()> {
                                 loop {
                                     match sock_recv.recv(&mut buf).await {
                                         Ok(n) if n > 0 => {
-                                            // Frame the datagram into link-MDU-sized chunks
-                                            // and fire each one off. Fire-and-forget: don't
-                                            // block the relay on per-packet receipt settlement.
+                                            // Frame the datagram into link-MDU-sized chunks.
+                                            // Fire-and-forget: don't block on per-packet receipt
+                                            // settlement (that can time out on slow ACKs and
+                                            // kill the relay). Pace chunk emission with a tiny
+                                            // sleep so we don't flood the engine's link send
+                                            // queue faster than it can transmit — which is what
+                                            // drops file-transfer packets under bursts.
                                             let datagram = &buf[..n];
                                             for chunk in frame(datagram) {
                                                 let payload = SendToLinkPayload::from_slice(&chunk)
@@ -273,6 +277,9 @@ async fn run_server(args: ServerArgs) -> Result<()> {
                                                 {
                                                     return;
                                                 }
+                                                // Pace between chunks so the manifold's egress
+                                                // loop can drain its send queue.
+                                                tokio::time::sleep(Duration::from_millis(1)).await;
                                             }
                                         }
                                         Ok(_) => continue,
@@ -297,7 +304,13 @@ async fn run_server(args: ServerArgs) -> Result<()> {
                 }
                 BridgeEvent::LinkData { link_id, bytes } => {
                     if let Some(tx) = router_senders.read().await.get(&link_id).cloned() {
-                        let _ = tx.send(bytes).await;
+                        // try_send: never let a slow relay consumer head-of-line
+                        // block the engine event loop. If the channel is full,
+                        // the chunk is dropped; Reticulum's link reliability
+                        // layer retransmits on the client side as needed.
+                        if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(bytes) {
+                            debug!(link = ?link_id, "server relay channel full; dropping chunk");
+                        }
                     } else {
                         debug!(link = ?link_id, "server LinkData for unknown link");
                     }
@@ -396,7 +409,9 @@ async fn run_client(args: crate::config::ClientArgs) -> Result<()> {
                 }
                 BridgeEvent::LinkData { link_id, bytes } => {
                     if let Some(tx) = router_link_data.read().await.get(&link_id).cloned() {
-                        let _ = tx.send(bytes).await;
+                        if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(bytes) {
+                            debug!(link = ?link_id, "client relay channel full; dropping chunk");
+                        }
                     } else {
                         debug!(link = ?link_id, "client LinkData for unknown link");
                     }
@@ -450,7 +465,7 @@ async fn run_client(args: crate::config::ClientArgs) -> Result<()> {
                 };
                 debug!(src = %src, link = ?link_id, "link established");
 
-                let (udp_to_link_tx, mut udp_to_link_rx) = mpsc::channel::<Vec<u8>>(64);
+                let (udp_to_link_tx, mut udp_to_link_rx) = mpsc::channel::<Vec<u8>>(256);
                 links.write().await.insert(src, udp_to_link_tx);
 
                 // Send the first packet that triggered the dial, framed into
@@ -473,7 +488,7 @@ async fn run_client(args: crate::config::ClientArgs) -> Result<()> {
                 }
 
                 // Register a per-link data channel the router writes link data into.
-                let (link_to_udp_tx, mut link_to_udp_rx) = mpsc::channel::<Vec<u8>>(64);
+                let (link_to_udp_tx, mut link_to_udp_rx) = mpsc::channel::<Vec<u8>>(256);
                 link_data_map.write().await.insert(link_id, link_to_udp_tx);
                 debug!(src = %src, link = ?link_id, "client relay registered");
 
