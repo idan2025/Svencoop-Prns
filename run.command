@@ -66,6 +66,18 @@ case "$choice" in
         maxplayers="${maxplayers:-8}"
         read -rp "Starting map [svencoop1]: " map
         map="${map:-svencoop1}"
+
+        # Pre-create the soundcache file for the chosen map. The SC dedicated
+        # server fails to generate these on-the-fly on Linux/macOS, causing
+        # "failed to transmit file" errors that disconnect clients. Creating
+        # an empty file lets the server send it without error.
+        SOUNDCACHE_DIR="$SVENDS_DIR/svencoop/maps/soundcache"
+        mkdir -p "$SOUNDCACHE_DIR" 2>/dev/null
+        if [ ! -f "$SOUNDCACHE_DIR/${map}.txt" ]; then
+            : > "$SOUNDCACHE_DIR/${map}.txt"
+            echo "Pre-created empty soundcache: $SOUNDCACHE_DIR/${map}.txt"
+        fi
+
         echo
         echo "Starting Sven Co-op dedicated server on port $sc_port..."
         echo "Map: $map   Max players: $maxplayers"

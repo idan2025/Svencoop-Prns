@@ -192,6 +192,46 @@ datagrams round-trip through the whole bridge — including an oversized
 cargo test --test loopback -- --nocapture
 ```
 
+## Troubleshooting
+
+### "Error: server failed to transmit file 'maps/soundcache/\<map\>.txt'"
+
+This is a **Sven Co-op server** issue, not a bridge issue. The SC dedicated
+server fails to generate soundcache files on-the-fly on Linux/macOS, causing
+client disconnects right after "STEAM USERID validated".
+
+The launchers (menu option 1) **automatically pre-create an empty soundcache
+file** for your chosen map before starting the server, which prevents this
+error. If you start `svends_run` manually, create the file yourself first:
+
+```bash
+mkdir -p "<SC install>/svencoop/maps/soundcache"
+touch "<SC install>/svencoop/maps/soundcache/<map>.txt"
+```
+
+Alternatively, launch the SC game client, start a local listen server on the
+map, and the client will generate the soundcache file properly. Then the
+dedicated server can use it.
+
+### "Closed IP networking" / connection retries in a loop
+
+Check that:
+1. The SC dedicated server is actually running and listening on the port the
+   bridge server points at (`--sc-port`, default 27015).
+2. The bridge client used `--tcp <host:port>` (not just `--auto`) when
+   connecting to a bridge server on the same machine. Auto-discovery is for
+   physical LAN/Wi-Fi between separate machines.
+3. The bridge client's `--listen-port` doesn't clash with the SC server's port
+   if both run on the same machine (use e.g. `--listen-port 27016`).
+
+### The SC client connects but hangs after "STEAM USERID validated"
+
+This was a bridge issue caused by GoldSrc signon packets (~1400 bytes)
+exceeding the Reticulum link payload ceiling. It's fixed in the current
+version — the vendored Prns engine is sized for a 2048-byte link MTU so
+GoldSrc datagrams fit in a single link packet. If you built from an older
+commit, rebuild.
+
 ## Architecture notes
 
 - **`src/framing.rs`** — length-prefix framing: splits each GoldSrc datagram
