@@ -1,0 +1,39 @@
+[package]
+name = "reticulum-site"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/KenAKAFrosty/Prns"
+homepage = "https://reticulum.rs"
+rust-version = "1.90"
+publish = false
+description = "Public-facing docs site for the Personal Reticulum Suite, served at reticulum.rs."
+
+[features]
+default = []
+# Deterministic browser qualification only. This swaps the trust root, but never
+# bypasses Minisign or manifest validation.
+browser-test-fixture = []
+local-dev-flasher = []
+
+# Own workspace: keeps the (heavy) web/UI dep tree out of the core suite's
+# build and off the no_std gate.
+[workspace]
+
+[[bin]]
+name = "reticulum-site"
+path = "src/main.rs"
+
+[dependencies]
+# Pinned to match the locally installed `dx` 0.7.5; bump dx and this together.
+dioxus = { version = "=0.7.5", features = ["router", "web"] }
+dioxus-i18n = "0.5"
+unic-langid = "0.9"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+prns-flash-manifest = { path = "../../prns-flash-manifest" }
+prns-macros = { path = "../../prns-macros" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[build-dependencies]
+prns-flash-manifest = { path = "../../prns-flash-manifest" }

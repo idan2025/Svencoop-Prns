@@ -1,0 +1,35 @@
+[package]
+name = "sc-rns-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+description = "Bridge Sven Co-op (GoldSrc UDP) over Reticulum using Prns"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "sc-rns-bridge"
+path = "src/main.rs"
+
+[[test]]
+name = "loopback"
+path = "tests/loopback.rs"
+
+[dependencies]
+personal-rns = { path = "vendor/personal-rns", features = ["tokio-host", "tcp", "wifi-auto"] }
+prns-core = { path = "vendor/prns-core" }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+anyhow = "1"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"

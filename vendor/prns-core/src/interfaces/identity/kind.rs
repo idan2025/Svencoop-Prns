@@ -1,0 +1,367 @@
+//! An id is `kind ++ hash(channel_tag)`: this byte names *what kind of wire* the interface is, the channel tag names *which* one. The kind namespaces the hash (two kinds never collide even if their channel-tag hashes did) and makes an id self-describing. Supervisors and the fleet members they stand up are distinct kinds. The discriminant is written into every id (and, once routes persist, onto disk), so it is a stable wire-like contract: never renumber a variant, only append; renumbering would silently repoint every persisted route of that kind.
+
+prns_macros::iterable_enum! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[repr(u8)]
+    pub enum InterfaceKind {
+        Loopback = 0,
+        TcpClient = 1,
+        TcpServer = 2,
+        Udp = 3,
+        Serial = 4,
+        UsbAutoHost = 5,
+        UsbAutoDevice = 6,
+        AutoWifi = 7,
+        WifiPeer = 8,
+        LocalServer = 9,
+        LocalClient = 10,
+        TcpServerPeer = 11,
+        BluetoothAuto = 12,
+        BluetoothPeer = 13,
+        LoRa = 14,
+        Kiss = 15,
+        Ax25Kiss = 16,
+        Pipe = 17,
+        Rnode = 18,
+        BackboneServer = 19,
+        BackboneServerPeer = 20,
+        BackboneClient = 21,
+        EspNow = 22,
+        WebSocketClient = 23,
+        WebSocketServer = 24,
+        WebSocketServerPeer = 25,
+        WifiDirect = 26,
+        WifiDirectPeer = 27,
+        WifiAware = 28,
+        WifiAwarePeer = 29,
+        I2p = 30,
+        I2pPeer = 31,
+        Weave = 32,
+        WeavePeer = 33,
+    }
+}
+
+impl InterfaceKind {
+    #[must_use]
+    pub const fn from_u8(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(Self::Loopback),
+            1 => Some(Self::TcpClient),
+            2 => Some(Self::TcpServer),
+            3 => Some(Self::Udp),
+            4 => Some(Self::Serial),
+            5 => Some(Self::UsbAutoHost),
+            6 => Some(Self::UsbAutoDevice),
+            7 => Some(Self::AutoWifi),
+            8 => Some(Self::WifiPeer),
+            9 => Some(Self::LocalServer),
+            10 => Some(Self::LocalClient),
+            11 => Some(Self::TcpServerPeer),
+            12 => Some(Self::BluetoothAuto),
+            13 => Some(Self::BluetoothPeer),
+            14 => Some(Self::LoRa),
+            15 => Some(Self::Kiss),
+            16 => Some(Self::Ax25Kiss),
+            17 => Some(Self::Pipe),
+            18 => Some(Self::Rnode),
+            19 => Some(Self::BackboneServer),
+            20 => Some(Self::BackboneServerPeer),
+            21 => Some(Self::BackboneClient),
+            22 => Some(Self::EspNow),
+            23 => Some(Self::WebSocketClient),
+            24 => Some(Self::WebSocketServer),
+            25 => Some(Self::WebSocketServerPeer),
+            26 => Some(Self::WifiDirect),
+            27 => Some(Self::WifiDirectPeer),
+            28 => Some(Self::WifiAware),
+            29 => Some(Self::WifiAwarePeer),
+            30 => Some(Self::I2p),
+            31 => Some(Self::I2pPeer),
+            32 => Some(Self::Weave),
+            33 => Some(Self::WeavePeer),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Loopback => "loopback",
+            Self::TcpClient => "tcp-client",
+            Self::TcpServer => "tcp-server",
+            Self::Udp => "udp",
+            Self::Serial => "serial",
+            Self::UsbAutoHost => "usb-auto-host",
+            Self::UsbAutoDevice => "usb-auto-device",
+            Self::AutoWifi => "auto-wifi",
+            Self::WifiPeer => "wifi-peer",
+            Self::LocalServer => "local-server",
+            Self::LocalClient => "local-client",
+            Self::TcpServerPeer => "tcp-server-peer",
+            Self::BluetoothAuto => "bluetooth-auto",
+            Self::BluetoothPeer => "bluetooth-peer",
+            Self::LoRa => "lora",
+            Self::Kiss => "kiss",
+            Self::Ax25Kiss => "ax25-kiss",
+            Self::Pipe => "pipe",
+            Self::Rnode => "rnode",
+            Self::BackboneServer => "backbone-server",
+            Self::BackboneServerPeer => "backbone-server-peer",
+            Self::BackboneClient => "backbone-client",
+            Self::EspNow => "esp-now",
+            Self::WebSocketClient => "websocket-client",
+            Self::WebSocketServer => "websocket-server",
+            Self::WebSocketServerPeer => "websocket-server-peer",
+            Self::WifiDirect => "wifi-direct",
+            Self::WifiDirectPeer => "wifi-direct-peer",
+            Self::WifiAware => "wifi-aware",
+            Self::WifiAwarePeer => "wifi-aware-peer",
+            Self::I2p => "i2p",
+            Self::I2pPeer => "i2p-peer",
+            Self::Weave => "weave",
+            Self::WeavePeer => "weave-peer",
+        }
+    }
+
+    #[must_use]
+    pub const fn member_kind(self) -> Option<Self> {
+        match self {
+            Self::AutoWifi => Some(Self::WifiPeer),
+            Self::LocalServer => Some(Self::LocalClient),
+            Self::TcpServer => Some(Self::TcpServerPeer),
+            Self::BackboneServer => Some(Self::BackboneServerPeer),
+            Self::BluetoothAuto => Some(Self::BluetoothPeer),
+            Self::WebSocketServer => Some(Self::WebSocketServerPeer),
+            Self::WifiDirect => Some(Self::WifiDirectPeer),
+            Self::WifiAware => Some(Self::WifiAwarePeer),
+            Self::I2p => Some(Self::I2pPeer),
+            Self::Weave => Some(Self::WeavePeer),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn supervisor_kind(self) -> Option<Self> {
+        match self {
+            Self::WifiPeer => Some(Self::AutoWifi),
+            Self::LocalClient => Some(Self::LocalServer),
+            Self::TcpServerPeer => Some(Self::TcpServer),
+            Self::BackboneServerPeer => Some(Self::BackboneServer),
+            Self::BluetoothPeer => Some(Self::BluetoothAuto),
+            Self::WebSocketServerPeer => Some(Self::WebSocketServer),
+            Self::WifiDirectPeer => Some(Self::WifiDirect),
+            Self::WifiAwarePeer => Some(Self::WifiAware),
+            Self::I2pPeer => Some(Self::I2p),
+            Self::WeavePeer => Some(Self::Weave),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InterfaceKind;
+
+    #[test]
+    fn all_covers_every_stable_discriminant_in_order() {
+        for (index, kind) in InterfaceKind::ALL.into_iter().enumerate() {
+            assert_eq!(kind as usize, index);
+            assert_eq!(InterfaceKind::from_u8(index as u8), Some(kind));
+        }
+        assert_eq!(InterfaceKind::from_u8(InterfaceKind::ALL.len() as u8), None);
+    }
+
+    #[test]
+    fn the_local_kinds_round_trip_their_discriminants() {
+        for kind in [InterfaceKind::LocalServer, InterfaceKind::LocalClient] {
+            assert_eq!(InterfaceKind::from_u8(kind as u8), Some(kind));
+        }
+    }
+
+    #[test]
+    fn a_local_server_supervises_local_clients() {
+        assert_eq!(
+            InterfaceKind::LocalServer.member_kind(),
+            Some(InterfaceKind::LocalClient)
+        );
+        assert_eq!(InterfaceKind::LocalClient.member_kind(), None);
+    }
+
+    #[test]
+    fn a_backbone_server_supervises_backbone_peers() {
+        assert_eq!(
+            InterfaceKind::from_u8(19),
+            Some(InterfaceKind::BackboneServer)
+        );
+        assert_eq!(
+            InterfaceKind::from_u8(20),
+            Some(InterfaceKind::BackboneServerPeer)
+        );
+        assert_eq!(
+            InterfaceKind::from_u8(21),
+            Some(InterfaceKind::BackboneClient)
+        );
+        assert_eq!(
+            InterfaceKind::BackboneServer.member_kind(),
+            Some(InterfaceKind::BackboneServerPeer)
+        );
+        assert_eq!(
+            InterfaceKind::BackboneServerPeer.supervisor_kind(),
+            Some(InterfaceKind::BackboneServer)
+        );
+        assert_eq!(InterfaceKind::BackboneClient.member_kind(), None);
+        assert_eq!(InterfaceKind::BackboneClient.supervisor_kind(), None);
+    }
+
+    #[test]
+    fn bluetooth_auto_supervises_bluetooth_peers() {
+        assert_eq!(
+            InterfaceKind::from_u8(12),
+            Some(InterfaceKind::BluetoothAuto)
+        );
+        assert_eq!(
+            InterfaceKind::from_u8(13),
+            Some(InterfaceKind::BluetoothPeer)
+        );
+        assert_eq!(
+            InterfaceKind::BluetoothAuto.member_kind(),
+            Some(InterfaceKind::BluetoothPeer)
+        );
+        assert_eq!(
+            InterfaceKind::BluetoothPeer.supervisor_kind(),
+            Some(InterfaceKind::BluetoothAuto)
+        );
+    }
+
+    #[test]
+    fn websocket_server_supervises_websocket_peers() {
+        assert_eq!(
+            InterfaceKind::from_u8(23),
+            Some(InterfaceKind::WebSocketClient)
+        );
+        assert_eq!(
+            InterfaceKind::from_u8(24),
+            Some(InterfaceKind::WebSocketServer)
+        );
+        assert_eq!(
+            InterfaceKind::from_u8(25),
+            Some(InterfaceKind::WebSocketServerPeer)
+        );
+        assert_eq!(
+            InterfaceKind::WebSocketServer.member_kind(),
+            Some(InterfaceKind::WebSocketServerPeer)
+        );
+        assert_eq!(
+            InterfaceKind::WebSocketServerPeer.supervisor_kind(),
+            Some(InterfaceKind::WebSocketServer)
+        );
+        assert_eq!(InterfaceKind::WebSocketClient.member_kind(), None);
+        assert_eq!(InterfaceKind::WebSocketClient.supervisor_kind(), None);
+    }
+
+    #[test]
+    fn every_fleet_supervisor_discriminant_fits_the_fan_mask() {
+        for byte in 0..=u8::MAX {
+            let Some(kind) = InterfaceKind::from_u8(byte) else {
+                continue;
+            };
+            if let Some(supervisor) = kind.supervisor_kind() {
+                assert!(
+                    (supervisor as u8) < 128,
+                    "the announce-fan mask is u128; a supervisor discriminant past 127 overflows its shift",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wifi_direct_supervises_wifi_direct_peers() {
+        assert_eq!(InterfaceKind::from_u8(26), Some(InterfaceKind::WifiDirect));
+        assert_eq!(
+            InterfaceKind::from_u8(27),
+            Some(InterfaceKind::WifiDirectPeer)
+        );
+        assert_eq!(
+            InterfaceKind::WifiDirect.member_kind(),
+            Some(InterfaceKind::WifiDirectPeer)
+        );
+        assert_eq!(
+            InterfaceKind::WifiDirectPeer.supervisor_kind(),
+            Some(InterfaceKind::WifiDirect)
+        );
+    }
+
+    #[test]
+    fn wifi_aware_supervises_wifi_aware_peers() {
+        assert_eq!(InterfaceKind::from_u8(28), Some(InterfaceKind::WifiAware));
+        assert_eq!(
+            InterfaceKind::from_u8(29),
+            Some(InterfaceKind::WifiAwarePeer)
+        );
+        assert_eq!(
+            InterfaceKind::WifiAware.member_kind(),
+            Some(InterfaceKind::WifiAwarePeer)
+        );
+        assert_eq!(
+            InterfaceKind::WifiAwarePeer.supervisor_kind(),
+            Some(InterfaceKind::WifiAware)
+        );
+    }
+
+    #[test]
+    fn i2p_supervises_i2p_peers() {
+        assert_eq!(InterfaceKind::from_u8(30), Some(InterfaceKind::I2p));
+        assert_eq!(InterfaceKind::from_u8(31), Some(InterfaceKind::I2pPeer));
+        assert_eq!(
+            InterfaceKind::I2p.member_kind(),
+            Some(InterfaceKind::I2pPeer)
+        );
+        assert_eq!(
+            InterfaceKind::I2pPeer.supervisor_kind(),
+            Some(InterfaceKind::I2p)
+        );
+    }
+
+    #[test]
+    fn weave_supervises_weave_peers() {
+        assert_eq!(InterfaceKind::from_u8(32), Some(InterfaceKind::Weave));
+        assert_eq!(InterfaceKind::from_u8(33), Some(InterfaceKind::WeavePeer));
+        assert_eq!(
+            InterfaceKind::Weave.member_kind(),
+            Some(InterfaceKind::WeavePeer)
+        );
+        assert_eq!(
+            InterfaceKind::WeavePeer.supervisor_kind(),
+            Some(InterfaceKind::Weave)
+        );
+    }
+}
+
+#[cfg_attr(mutants, mutants::skip)]
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn fleet_member_and_supervisor_kinds_are_inverses() {
+        let byte: u8 = kani::any();
+        if let Some(kind) = InterfaceKind::from_u8(byte) {
+            if let Some(member) = kind.member_kind() {
+                assert_eq!(member.supervisor_kind(), Some(kind));
+            }
+            if let Some(supervisor) = kind.supervisor_kind() {
+                assert_eq!(supervisor.member_kind(), Some(kind));
+            }
+        }
+    }
+
+    #[kani::proof]
+    fn fleet_supervisor_discriminants_fit_the_fan_mask() {
+        let byte: u8 = kani::any();
+        if let Some(kind) = InterfaceKind::from_u8(byte) {
+            if let Some(supervisor) = kind.supervisor_kind() {
+                assert!((supervisor as u8) < 128);
+            }
+        }
+    }
+}

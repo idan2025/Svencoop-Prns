@@ -1,0 +1,150 @@
+[package]
+name = "prnsd"
+version = "0.3.7"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/KenAKAFrosty/Prns"
+homepage = "https://reticulum.rs"
+rust-version = "1.90"
+description = "Thin daemon host for the Personal Reticulum engine"
+publish = false
+
+[workspace]
+members = ["command", "control", "observability/runner"]
+resolver = "3"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/KenAKAFrosty/Prns"
+homepage = "https://reticulum.rs"
+rust-version = "1.90"
+
+[workspace.dependencies]
+prnsd-control = { path = "control" }
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+significant_drop_in_scrutinee = "warn"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(mutants)'] }
+
+[[bin]]
+name = "prnsd"
+path = "src/main.rs"
+required-features = ["tokio-cloud-host", "observability"]
+
+[features]
+default = ["tokio-host", "observability", "tray"]
+alloc = ["personal-rns/alloc"]
+std = ["alloc", "personal-rns/std"]
+tokio-host = [
+    "tokio-cloud-host",
+    "personal-rns/serial",
+    "personal-rns/kiss",
+    "personal-rns/ax25",
+    "personal-rns/rnode",
+    "personal-rns/weave",
+    "personal-rns/wifi-auto",
+    "personal-rns/wifi-auto-mdns",
+    "personal-rns/usb",
+    "personal-rns/bluetooth-auto",
+    "dep:dbus",
+]
+tokio-cloud-host = [
+    "std",
+    "personal-rns/tokio-host",
+    "personal-rns/tcp",
+    "personal-rns/udp",
+    "personal-rns/pipe",
+    "personal-rns/backbone",
+    "personal-rns/i2p",
+    "personal-rns/websocket",
+    "personal-rns/browser-rendezvous",
+    "personal-rns/shared-instance",
+    "personal-rns/signed-artifact",
+    "personal-rns/rnx",
+    "personal-rns/config",
+    "personal-rns/interface-discovery-archive",
+    "personal-rns/parallel-persistence",
+    "personal-rns/parallel-resource-hash",
+    "dep:tokio",
+    "dep:clap",
+]
+observability = [
+    "personal-rns/log",
+    "personal-rns/tracing",
+    "dep:log",
+    "dep:tracing",
+    "dep:tracing-log",
+    "dep:tracing-subscriber",
+]
+tray = ["dep:ksni", "dep:tray-icon", "dep:winit"]
+otlp = [
+    "observability",
+    "personal-rns/runtime-metrics",
+    "dep:opentelemetry",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry_sdk",
+    "dep:tracing-opentelemetry",
+]
+
+[dependencies]
+personal-rns = { path = "../personal-rns", default-features = false }
+prns-config = { path = "../prns-config" }
+prnsd-control.workspace = true
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "io-std", "process", "signal", "fs"], optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "1.1.3"
+time = { version = "0.3.51", features = ["formatting", "local-offset"] }
+base64 = "0.22"
+data-encoding = "2"
+log = { version = "0.4", optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-log = { version = "0.2", optional = true }
+tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry"] }
+opentelemetry = { version = "0.32", optional = true, default-features = false, features = ["metrics", "trace"] }
+opentelemetry-otlp = { version = "0.32", optional = true, default-features = false, features = ["http-proto", "metrics", "reqwest-blocking-client", "reqwest-rustls-webpki-roots", "trace"] }
+opentelemetry_sdk = { version = "0.32", optional = true, default-features = false, features = ["metrics", "trace"] }
+tracing-opentelemetry = { version = "0.33", optional = true, default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = { version = "0.9", optional = true, features = ["vendored"] }
+ksni = { version = "0.3.6", optional = true, default-features = false, features = ["tokio"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+tray-icon = { version = "0.24.1", optional = true, default-features = false }
+winit = { version = "0.30.12", optional = true, default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+prns-ffi = { path = "../prns-ffi", default-features = false }
+tempfile = "3"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+undocumented_unsafe_blocks = "deny"
+significant_drop_in_scrutinee = "warn"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

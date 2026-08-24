@@ -1,0 +1,50 @@
+{
+  "name": "request-response",
+  "version": 12,
+  "order": 3,
+  "title": "Request/response",
+  "category": "Requests",
+  "summary": "Four concurrent small requests with asynchronous 1–4 KiB resource responses over four pre-established links.",
+  "primary_metric": "requests_per_sec",
+  "headline": true,
+  "notes": [],
+  "cell_notes": [
+    {
+      "subject": {
+        "path": "direct",
+        "initiator": "personal-rns",
+        "responder": "rns-1.4.0-compiled"
+      },
+      "text": "RNS sends a resource advertisement before registering that resource internally. Prns can return the first pull so quickly that RNS drops it. Prns then waits for its 250 ms retry deadline. A p99 pinned just above 250 ms is the fingerprint of this race."
+    },
+    {
+      "subject": {
+        "path": "direct",
+        "initiator": "personal-rns",
+        "responder": "rns-1.4.2-compiled"
+      },
+      "text": "RNS sends a resource advertisement before registering that resource internally. Prns can return the first pull so quickly that RNS drops it. Prns then waits for its 250 ms retry deadline. A p99 pinned just above 250 ms is the fingerprint of this race."
+    }
+  ],
+  "description": "Four concurrent request/reply round trips use four pre-established links at the manifest-owned standard 500-byte RNS MTU. Deterministic 32–128 byte requests remain below the link MDU, while deterministic 1–4 KiB responses unambiguously use the documented asynchronous resource-response path on both stacks. Each link holds its response lane through Resource proof settlement before transmitting its next response; the four links remain independently concurrent. That preserves realistic small requests without sleeps, blocking handlers, private queue inspection, reference mutation, or latency shims. Requests per second is the primary comparison; fractional-millisecond p50 and p99 wall-clock RTT run from request issue through complete response settlement.",
+  "roles": [
+    "responder",
+    "initiator"
+  ],
+  "profile": {
+    "mechanism": "request",
+    "request_min": 32,
+    "request_max": 128,
+    "response_min": 1024,
+    "response_max": 4096,
+    "window": 4,
+    "request_links": 4,
+    "link_mtu": 500,
+    "duration_ms": 30000,
+    "drain_timeout_ms": 30000,
+    "size_seed": 6840346605343539201,
+    "payload_shape": "dense"
+  },
+  "conformance_rule": "exact-request",
+  "conformance": "Exactly four request lanes remain occupied at a 500-byte link MTU; sent == delivered == served, expected_response_bytes == response_bytes == served_response_bytes, and timeouts == raced == 0."
+}

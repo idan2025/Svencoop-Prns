@@ -1,0 +1,24 @@
+# Enlarge the stack of the threads the test harness spawns. Under `giga-links` the link MTU is
+# 512 KiB (see routing/links/mod.rs), so a fixed-storage `EngineState` is several megabytes; a
+# unit test that builds one on the stack overflows the default 2 MiB test-thread stack. This
+# only touches processes cargo itself runs (tests, examples, `cargo run`) — a released binary,
+# built and launched without cargo's environment, is unaffected.
+[env]
+RUST_MIN_STACK = "268435456"
+
+# aes 0.8 keeps its ARMv8 implementation behind an explicit cfg. The backend still performs
+# runtime feature detection, so portable AArch64 binaries use hardware AES where it exists and
+# retain the software fallback where it does not.
+[target.'cfg(target_arch = "aarch64")']
+rustflags = ["--cfg", "aes_armv8"]
+
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "link-arg=/STACK:268435456"]
+
+[alias]
+# Post-bootstrap convenience for the repository task control plane. The
+# bootstrap-safe and CI-stable entrypoint remains ./tools/prns.
+tools = "run --quiet -p prns-tools-command --"
+prnsd = "run --quiet --manifest-path prnsd/Cargo.toml -p prnsd-command --"
+observability = "run --quiet --manifest-path prnsd/Cargo.toml -p prns-observability-runner --"
+benchmark = "run --quiet --release --manifest-path benchmarks/Cargo.toml --bin benchmark_cli --"

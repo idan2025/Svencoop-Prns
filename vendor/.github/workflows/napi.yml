@@ -1,0 +1,535 @@
+name: napi
+
+on:
+  workflow_call:
+    inputs:
+      expected_sha:
+        required: false
+        type: string
+        default: ""
+      npm_publish:
+        required: false
+        type: string
+        default: "false"
+      npm_tag:
+        required: false
+        type: string
+        default: "next"
+  push:
+    branches: [trunk]
+    paths:
+      - "prns-napi/**"
+      - "prns-js/**"
+      - "prns-host/**"
+      - "prns-wasm/**"
+      - "personal-rns/**"
+      - "personal-hopspot/sdk/hopspot/**"
+      - "prns-core/**"
+      - "prns-config/**"
+      - "prns-ffi/**"
+      - "prns-runtime/**"
+      - "prns-interfaces/**"
+      - ".github/workflows/napi.yml"
+  pull_request:
+    paths:
+      - "prns-napi/**"
+      - "prns-js/**"
+      - "prns-host/**"
+      - "prns-wasm/**"
+      - "personal-rns/**"
+      - "personal-hopspot/sdk/hopspot/**"
+      - "prns-core/**"
+      - "prns-config/**"
+      - "prns-ffi/**"
+      - "prns-runtime/**"
+      - "prns-interfaces/**"
+      - ".github/workflows/napi.yml"
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Full commit SHA this dispatch is expected to run against"
+        required: false
+        default: ""
+      npm_publish:
+        description: "Publish to npm"
+        required: false
+        default: "false"
+      npm_tag:
+        description: "npm dist-tag for the publish"
+        required: false
+        default: "next"
+
+concurrency:
+  group: napi-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings --cfg aes_armv8"
+
+jobs:
+  host-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: prns-host/abi/c
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: 8.0.x
+      - run: ./tools/prns run repo.host-contract.check
+      - run: cargo fmt --manifest-path prns-host/abi/c/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path prns-host/abi/c/Cargo.toml --all-targets --locked -- -D warnings
+      - run: cargo test --manifest-path prns-host/abi/c/Cargo.toml --locked
+      - run: cc -std=c11 -Wall -Wextra -Werror -fsyntax-only prns-host/abi/c/tests/header-smoke.c
+      - run: npm ci --ignore-scripts
+        working-directory: prns-js
+      - run: npm run check
+        working-directory: prns-js
+      - run: npm test
+        working-directory: personal-hopspot/sdk/hopspot
+      - run: python3 validation/run.py run --suite host-dotnet-contract
+
+  napi-clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: prns-napi
+      - run: cargo clippy --locked -- -D warnings
+        working-directory: prns-napi
+
+  napi-build:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        settings:
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            cross: ""
+            toolchain: native
+          - host: windows-latest
+            target: aarch64-pc-windows-msvc
+            cross: ""
+            toolchain: native
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            cross: ""
+            toolchain: native
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            cross: ""
+            toolchain: native
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: "--use-napi-cross"
+            toolchain: napi-cross
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: "--use-napi-cross"
+            toolchain: napi-cross
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            cross: "--cross-compile"
+            toolchain: zig
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            cross: "--cross-compile"
+            toolchain: zig
+    name: napi-build (${{ matrix.settings.target }})
+    runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          targets: ${{ matrix.settings.target }}
+      - uses: ./.github/actions/reproducible-rust
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: prns-napi -> target/${{ matrix.settings.target }}-${{ matrix.settings.toolchain }}
+          key: ${{ matrix.settings.target }}-${{ matrix.settings.toolchain }}-${{ hashFiles('prns-napi/tools/glibc-compat.h', 'prns-napi/tools/napi-build.mjs') }}
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        if: ${{ contains(matrix.settings.target, 'musl') }}
+        with:
+          version: 0.14.1
+      - uses: taiki-e/install-action@7572810d7dd469b651bb7793945692cf78da5dd7
+        if: ${{ contains(matrix.settings.target, 'musl') }}
+        with:
+          tool: cargo-zigbuild@0.23.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+        working-directory: prns-napi
+      - run: npm run build -- --target ${{ matrix.settings.target }} ${{ matrix.settings.cross }}
+        working-directory: prns-napi
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/prns-napi/target/${{ matrix.settings.target }}-${{ matrix.settings.toolchain }}
+      - name: enforce the GNU compatibility floor
+        if: ${{ contains(matrix.settings.target, 'linux-gnu') }}
+        run: |
+          symbols="$(objdump -T prns-napi/*.node)"
+          if grep -q '__isoc23_' <<< "$symbols"; then
+            grep '__isoc23_' <<< "$symbols"
+            exit 1
+          fi
+          highest="$(grep -o 'GLIBC_[0-9.]*' <<< "$symbols" | sort -Vu | tail -1)"
+          test -n "$highest"
+          test "$(printf '%s\n' "$highest" GLIBC_2.17 | sort -V | tail -1)" = GLIBC_2.17
+      - run: node -e "console.log(process.arch, require('node:fs').readdirSync('.').filter((f) => f.endsWith('.node')))"
+        working-directory: prns-napi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: prns-napi/*.node
+          if-no-files-found: error
+          retention-days: 7
+
+  napi-test:
+    needs: napi-build
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        settings:
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+          - host: windows-11-arm
+            target: aarch64-pc-windows-msvc
+          - host: macos-latest
+            target: aarch64-apple-darwin
+          - host: macos-15-intel
+            target: x86_64-apple-darwin
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - host: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    name: napi-test (${{ matrix.settings.target }})
+    runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+        working-directory: prns-napi
+      - run: npm ci --ignore-scripts
+        working-directory: prns-js
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: prns-napi
+      - run: npm test
+        working-directory: prns-napi
+      - run: npm run test:native
+        working-directory: prns-js
+
+  napi-test-linux-slim:
+    needs: napi-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: node:24-slim
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - run: npm ci --ignore-scripts
+        working-directory: prns-napi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bindings-x86_64-unknown-linux-gnu
+          path: prns-napi
+      - run: npm test
+        working-directory: prns-napi
+
+  napi-test-linux-musl:
+    needs: napi-build
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        settings:
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - host: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    name: napi-test (${{ matrix.settings.target }})
+    runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: prns-napi
+      - name: test raw and unified packages on musl
+        run: >-
+          docker run --rm --network host
+          -v "$GITHUB_WORKSPACE:/work"
+          -w /work
+          node:24-alpine
+          sh -lc
+          'npm --prefix prns-napi ci --ignore-scripts &&
+          npm --prefix prns-napi test &&
+          npm --prefix prns-js ci --ignore-scripts &&
+          npm --prefix prns-js run test:native'
+
+  javascript-hosts:
+    needs: napi-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: prns-wasm
+          key: javascript-hosts
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - run: npm ci --ignore-scripts
+        working-directory: prns-napi
+      - run: npm ci --ignore-scripts
+        working-directory: prns-wasm
+      - run: npm ci --ignore-scripts
+        working-directory: prns-js
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bindings-x86_64-unknown-linux-gnu
+          path: prns-napi
+      - run: npm test
+        working-directory: prns-js
+      - run: npm run test:native
+        working-directory: prns-js
+      - run: npm run test:bun
+        working-directory: prns-js
+      - run: npm run test:browser:full
+        working-directory: prns-js
+        env:
+          RUSTFLAGS: "-D warnings"
+      - run: npm run pack:check
+        working-directory: prns-js
+
+  napi-release-critical:
+    needs:
+      - host-contract
+      - napi-clippy
+      - napi-build
+      - napi-test
+      - napi-test-linux-slim
+      - napi-test-linux-musl
+      - javascript-hosts
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: require every napi lane to succeed
+        run: |
+          test "${{ needs.host-contract.result }}" = success
+          test "${{ needs.napi-clippy.result }}" = success
+          test "${{ needs.napi-build.result }}" = success
+          test "${{ needs.napi-test.result }}" = success
+          test "${{ needs.napi-test-linux-slim.result }}" = success
+          test "${{ needs.napi-test-linux-musl.result }}" = success
+          test "${{ needs.javascript-hosts.result }}" = success
+
+  npm-stage:
+    needs: [napi-build, napi-release-critical]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: ./.github/actions/reproducible-rust
+      - run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - run: npm ci --ignore-scripts
+        working-directory: prns-napi
+      - run: npm ci --ignore-scripts
+        working-directory: prns-wasm
+      - run: npm ci --ignore-scripts
+        working-directory: prns-js
+      - run: npx napi create-npm-dirs
+        working-directory: prns-napi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: bindings-*
+          path: prns-napi/artifacts
+      - run: npx napi artifacts
+        working-directory: prns-napi
+      - name: stage platform package documents
+        run: >-
+          python tools/prns run release.host-sdk.javascript.stage --
+          --packages prns-napi/npm
+      - run: npm --prefix prns-js run pack:check
+      - name: pack npm artifacts
+        run: |
+          mkdir -p dist/npm
+          for directory in prns-napi/npm/*/; do
+            npm pack "$directory" --pack-destination dist/npm
+          done
+          npm pack ./prns-js --pack-destination dist/npm
+          npm pack ./personal-hopspot/sdk/hopspot --pack-destination dist/npm
+      - name: smoke packed Node and Bun consumers
+        run: |
+          smoke="$(mktemp -d)"
+          cd "$smoke"
+          npm init --yes
+          npm install --ignore-scripts --no-audit --no-fund \
+            "$GITHUB_WORKSPACE/dist/npm/personal-rns-linux-x64-gnu-$(cat "$GITHUB_WORKSPACE/VERSION").tgz" \
+            "$GITHUB_WORKSPACE/dist/npm/personal-rns-$(cat "$GITHUB_WORKSPACE/VERSION").tgz" \
+            "$GITHUB_WORKSPACE/dist/npm/hopspot-$(cat "$GITHUB_WORKSPACE/VERSION").tgz"
+          cp "$GITHUB_WORKSPACE/VERSION" VERSION
+          mkdir -p prns-js/tests prns-host/conformance
+          cp "$GITHUB_WORKSPACE/prns-js/tests/native-consumer.test.mjs" \
+            prns-js/tests/
+          cp "$GITHUB_WORKSPACE/prns-host/conformance/persistent-two-node-v1.json" \
+            prns-host/conformance/
+          node --test prns-js/tests/native-consumer.test.mjs
+          node --input-type=module --eval \
+            'import { HOST_CONTRACT_ABI, Prns, Tag } from "personal-rns"; import { HOST_CONTRACT_ABI as HOPSPOT_ABI, Prns as HopspotPrns, Tag as HopspotTag } from "hopspot"; if (HOST_CONTRACT_ABI !== 1 || HOPSPOT_ABI !== HOST_CONTRACT_ABI || HopspotPrns !== Prns || HopspotTag !== Tag) throw new Error("facade mismatch"); const ready = await HopspotPrns.create({ identity: HopspotTag("GenerateEphemeral"), role: "Endpoint" }); if (ready.tag !== "Ready") throw new Error(ready.tag); const stopped = await ready.data.stop(); if (stopped.tag !== "Stopped") throw new Error(stopped.tag);'
+          bun --eval \
+            'import { HOST_CONTRACT_ABI, Prns, Tag } from "personal-rns"; import { HOST_CONTRACT_ABI as HOPSPOT_ABI, Prns as HopspotPrns, Tag as HopspotTag } from "hopspot"; if (HOST_CONTRACT_ABI !== 1 || HOPSPOT_ABI !== HOST_CONTRACT_ABI || HopspotPrns !== Prns || HopspotTag !== Tag) throw new Error("facade mismatch"); const ready = await HopspotPrns.create({ identity: HopspotTag("GenerateEphemeral"), role: "Endpoint" }); if (ready.tag !== "Ready") throw new Error(ready.tag); const stopped = await ready.data.stop(); if (stopped.tag !== "Stopped") throw new Error(stopped.tag);'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: host-npm
+          path: dist/npm/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  napi-publish:
+    needs: npm-stage
+    if: github.event_name == 'workflow_dispatch' && inputs.npm_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: host-sdk-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - name: enforce dispatch commit custody
+        run: |
+          test -n "${{ inputs.expected_sha }}"
+          test "${{ inputs.expected_sha }}" = "${{ github.sha }}"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: ./.github/actions/reproducible-rust
+      - run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - run: npm ci --ignore-scripts
+        working-directory: prns-napi
+      - run: npm ci --ignore-scripts
+        working-directory: prns-wasm
+      - run: npm ci --ignore-scripts
+        working-directory: prns-js
+      - name: assert version custody
+        run: |
+          workspace_version="$(cat VERSION)"
+          napi_package_version="$(node -p "require('./prns-napi/package.json').version")"
+          js_package_version="$(node -p "require('./prns-js/package.json').version")"
+          hopspot_package_version="$(node -p "require('./personal-hopspot/sdk/hopspot/package.json').version")"
+          napi_crate_version="$(grep -m1 '^version = ' prns-napi/Cargo.toml | cut -d'"' -f2)"
+          wasm_crate_version="$(grep -m1 '^version = ' prns-wasm/Cargo.toml | cut -d'"' -f2)"
+          test "$workspace_version" = "$napi_package_version"
+          test "$workspace_version" = "$js_package_version"
+          test "$workspace_version" = "$hopspot_package_version"
+          test "$workspace_version" = "$napi_crate_version"
+          test "$workspace_version" = "$wasm_crate_version"
+      - run: npx napi create-npm-dirs
+        working-directory: prns-napi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: bindings-*
+          path: prns-napi/artifacts
+      - run: npx napi artifacts
+        working-directory: prns-napi
+      - name: stage platform package documents
+        run: >-
+          python tools/prns run release.host-sdk.javascript.stage --
+          --packages prns-napi/npm
+      - name: publish platform packages
+        run: npx napi pre-publish -t npm
+        working-directory: prns-napi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: build and inspect unified root package
+        run: npm --prefix prns-js run pack:check
+      - name: publish unified root package
+        run: npm publish --provenance --access public --tag "${{ inputs.npm_tag }}"
+        working-directory: prns-js
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: inspect alternate-name facade
+        run: npm run check
+        working-directory: personal-hopspot/sdk/hopspot
+      - name: wait for the canonical package dependency
+        run: |
+          version="$(cat VERSION)"
+          for attempt in {1..18}; do
+            if test "$(npm view "personal-rns@$version" version 2>/dev/null)" = "$version"; then
+              break
+            fi
+            if test "$attempt" = 18; then
+              exit 1
+            fi
+            sleep 10
+          done
+      - name: publish alternate-name facade
+        run: npm publish --provenance --access public --tag "${{ inputs.npm_tag }}"
+        working-directory: personal-hopspot/sdk/hopspot
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,978 @@
+@import "tailwindcss" source(none);
+@source "./src";
+@source "./index.html";
+
+@theme {
+    /* Inverted-ink palette: deep substrate, cool accent. Matches the
+       engineering tone of personal-rns (deterministic, embedded-first). */
+    --color-ink: #0b0e13;
+    --color-paper: #f4f6fa;
+    --color-mid: #6c7480;
+    --color-soft: #a5acb8;
+    --color-line: #1a1f28;
+    --color-surface: #11151c;
+    --color-layer: #161b24;
+    --color-accent: #6ee7b7;
+    --color-accent-strong: #34d399;
+    --color-accent-soft: rgb(110 231 183 / 0.12);
+    --color-signal: #93c5fd;
+    --color-warn: #fbbf24;
+
+    --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+    --radius-card: 1rem;
+    --radius-pill: 999px;
+
+    --shadow-card: 0 1px 0 rgb(255 255 255 / 0.04) inset,
+        0 12px 28px rgb(0 0 0 / 0.35);
+}
+
+html, body {
+    background: var(--color-ink);
+    color: var(--color-paper);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    html {
+        scroll-behavior: smooth;
+    }
+}
+
+.hero-title {
+    font-size: 2.05rem;
+}
+
+@media (min-width: 48rem) {
+    .hero-title {
+        font-size: 2.625rem;
+    }
+}
+
+/* Prose styles for markdown-rendered pages (contributing, crate docs, benchmark results). */
+.prose {
+    max-width: 70ch;
+    line-height: 1.7;
+    color: rgb(244 246 250 / 0.92);
+}
+.prose h1, .prose h2, .prose h3 {
+    color: var(--color-paper);
+    font-weight: 600;
+    margin-top: 2.2em;
+    margin-bottom: 0.6em;
+    letter-spacing: -0.01em;
+}
+.prose h1 { font-size: 2rem; margin-top: 0; }
+.prose h2 { font-size: 1.4rem; }
+.prose h3 { font-size: 1.15rem; }
+.prose p { margin: 1em 0; }
+.prose a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-decoration-color: rgb(110 231 183 / 0.4);
+    text-underline-offset: 3px;
+}
+.prose a:hover { text-decoration-color: var(--color-accent); }
+.prose code {
+    font-family: var(--font-mono);
+    background: var(--color-layer);
+    color: var(--color-accent);
+    padding: 0.15em 0.4em;
+    border-radius: 0.35em;
+    font-size: 0.92em;
+}
+.prose pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: 0.75em;
+    padding: 1rem 1.15rem;
+    overflow-x: auto;
+    line-height: 1.55;
+    margin: 1.4em 0;
+}
+.prose pre code {
+    background: transparent;
+    color: rgb(244 246 250 / 0.92);
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.88em;
+}
+.prose blockquote {
+    border-left: 3px solid var(--color-accent);
+    padding-left: 1em;
+    color: rgb(244 246 250 / 0.75);
+    font-style: italic;
+    margin: 1.4em 0;
+}
+.prose ul, .prose ol { margin: 1em 0; padding-left: 1.5em; }
+.prose ul { list-style: disc; }
+.prose ol { list-style: decimal; }
+.prose li { margin: 0.4em 0; }
+.prose hr {
+    border: none;
+    border-top: 1px solid var(--color-line);
+    margin: 2.5em 0;
+}
+.prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.7em 0;
+    font-size: 0.92em;
+    border: 1px solid var(--color-line);
+}
+
+@media (max-width: 48rem) {
+    .prose table {
+        display: block;
+        overflow-x: auto;
+    }
+}
+.prose thead { background: var(--color-layer); }
+.prose th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--color-paper);
+    padding: 0.6em 0.95em;
+    border-bottom: 1px solid var(--color-line);
+    white-space: nowrap;
+}
+.prose td {
+    padding: 0.6em 0.95em;
+    border-top: 1px solid var(--color-line);
+    color: rgb(244 246 250 / 0.88);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.prose tbody tr:nth-child(even) { background: rgb(255 255 255 / 0.02); }
+.prose th:first-child, .prose td:first-child { color: var(--color-paper); }
+.prose td img, .prose th img { display: inline-block; vertical-align: -3px; margin-right: 0.15em; }
+
+/* Landing eyebrow: the last word rotates through a short list of qualities on
+   load and rests on "yours", which then draws an underline. One-shot. A 1rem
+   window sits inline with the surrounding all-caps text; the stacked word list
+   (1.4rem steps) scrolls up through it. */
+.kicker-rotator {
+    display: inline-block;
+    height: 1rem;
+    line-height: 1rem;
+    vertical-align: bottom;
+    position: relative;
+    white-space: nowrap;
+}
+/* Safari/WebKit composites the translated resting word ~1px high relative to the
+   surrounding line — a device-pixel snap of the transformed layer that Blink
+   doesn't do. Nudge the whole rotator (word + underline together) down 1px there
+   only, via a WebKit-only feature query (-webkit-named-image is unsupported in
+   Blink), so Chrome stays pixel-perfect. Measured: -1.05px → -0.05px. */
+@supports (background: -webkit-named-image(i)) {
+    .kicker-rotator { top: 1px; }
+}
+/* Clipping lives on this inner window, NOT on .kicker-rotator, so the
+   inline-block that participates in line layout stays a clean 1rem box. An
+   earlier version clipped with clip-path: inset(0 0 -0.35rem 0) on the rotator
+   itself; Safari folds a negative clip-path inset into the layout box and, under
+   vertical-align:bottom, floated the resting word up by ~0.35rem (Chrome treats
+   clip-path as paint-only). A plain overflow:hidden window has no such effect,
+   and the underline lives outside it (see __rule) so nothing needs to bleed. */
+.kicker-rotator__window {
+    display: block;
+    height: 1rem;
+    overflow: hidden;
+}
+/* translateY(-11.2rem) is the resting state as a real static transform; the
+   animation fills `backwards` so it governs only the 0.5s lead-in and the run,
+   then hands back to this static value. Relying on forwards-fill alone left
+   Safari holding the end frame on a stale layer — a second source of float. */
+.kicker-rotator__list {
+    display: block;
+    transform: translateY(-11.2rem);
+    animation: kicker-rotate 6.3s cubic-bezier(0.65, 0, 0.35, 1) 0.5s 1 backwards;
+}
+.kicker-rotator__word {
+    display: block;
+    height: 1rem;
+    line-height: 1rem;
+    /* Gap between stacked words so mid-rotation you see space, not the next word. */
+    margin-bottom: 0.4rem;
+}
+.kicker-rotator__word:last-child {
+    margin-bottom: 0;
+}
+/* The underline under the resting word. A sibling of the window (so its
+   overflow:hidden never clips it), placed just below the 1rem slot. It carries
+   the resting word's text (transparent, zero-height) only to size itself to
+   "yours" — narrower than the widest rotated word — then draws a bar. Fires a
+   comfortable beat after the word lands (~6.04s in: 0.5s delay + 0.88 * 6.3s).
+   The -2px/2px nudge below was measured for "people"; re-eyeball it if the
+   resting word changes. */
+.kicker-rotator__rule {
+    position: absolute;
+    left: 0;
+    bottom: -0.12rem;
+    height: 0;
+    color: transparent;
+    overflow: visible;
+    pointer-events: none;
+    white-space: nowrap;
+}
+.kicker-rotator__rule::after {
+    content: "";
+    position: absolute;
+    /* Nudge 2px left: "people" carries ~2.6px of trailing letter-spacing in its
+       box, which would otherwise push the bar right of the glyphs. */
+    left: -2px;
+    right: 2px;
+    top: 0;
+    height: 1px;
+    background: var(--color-accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    animation: kicker-underline 0.55s cubic-bezier(0.16, 1, 0.3, 1) 6.5s forwards;
+}
+@keyframes kicker-underline {
+    to { transform: scaleX(1); }
+}
+@keyframes kicker-rotate {
+    0%, 7%    { transform: translateY(0); }
+    11%, 18%  { transform: translateY(-1.4rem); }
+    22%, 29%  { transform: translateY(-2.8rem); }
+    33%, 40%  { transform: translateY(-4.2rem); }
+    44%, 51%  { transform: translateY(-5.6rem); }
+    55%, 62%  { transform: translateY(-7rem); }
+    66%, 73%  { transform: translateY(-8.4rem); }
+    77%, 84%  { transform: translateY(-9.8rem); }
+    88%, 100% { transform: translateY(-11.2rem); }
+}
+/* Honor reduced-motion: skip the reveal. Resting word + static underline.
+   The list keeps its base translateY(-7rem); only the animations are dropped. */
+@media (prefers-reduced-motion: reduce) {
+    .kicker-rotator__list {
+        animation: none;
+    }
+    .kicker-rotator__rule::after {
+        animation: none;
+        transform: scaleX(1);
+    }
+}
+/* Visually hidden, still read by screen readers (the resting word). */
+.kicker-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Platform marquee under the hero — a seamless horizontal ticker of run targets.
+   The track holds two identical copies of the list; translateX(-50%) advances
+   exactly one copy, so the loop never jumps. Edges fade via a mask; min-width:0
+   lets the flex item shrink so the (very wide) track clips and scrolls. */
+.platform-marquee {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+}
+.platform-marquee__track {
+    display: flex;
+    width: max-content;
+    animation: platform-scroll 62s linear infinite;
+}
+.platform-marquee:hover .platform-marquee__track {
+    animation-play-state: paused;
+}
+.platform-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: none;
+    padding: 0.45rem 0.8rem;
+    border: 1px solid rgb(108 116 128 / 0.22);
+    border-radius: 0.6rem;
+    background: rgb(22 27 36 / 0.6);
+    color: var(--color-soft);
+    font-size: 0.8rem;
+    line-height: 1;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.platform-chip:hover {
+    color: var(--color-paper);
+    border-color: rgb(110 231 183 / 0.45);
+    background: rgb(22 27 36 / 0.85);
+}
+/* Bundled Simple Icon, tinted to the chip's text color via mask (tracks the
+   theme + brightens on hover). --logo is set per chip as an inline style. */
+.platform-chip__icon {
+    flex: none;
+    width: 1.05rem;
+    height: 1.05rem;
+    background: currentColor;
+    -webkit-mask: var(--logo) center / contain no-repeat;
+    mask: var(--logo) center / contain no-repeat;
+}
+/* Marquee chips tile via margin (not gap) so two copies loop seamlessly; the
+   platforms-page grid spaces with gap instead, so scope the margin here. */
+.platform-marquee__track .platform-chip {
+    margin-right: 0.5rem;
+}
+/* Bring-up/roadmap chips on the platforms page: dashed + dimmer, with a
+   compact support-state badge. */
+.platform-chip--muted {
+    border-style: dashed;
+    border-color: rgb(108 116 128 / 0.4);
+    color: var(--color-mid);
+}
+.platform-chip--bringup {
+    border-color: rgb(96 165 250 / 0.55);
+    background: rgb(96 165 250 / 0.05);
+    box-shadow: 0 0 0 1px rgb(96 165 250 / 0.08) inset;
+    color: var(--color-soft);
+}
+.platform-chip--supported {
+    border-color: rgb(110 231 183 / 0.55);
+    background: rgb(110 231 183 / 0.05);
+    box-shadow: 0 0 0 1px rgb(110 231 183 / 0.08) inset;
+    color: var(--color-paper);
+}
+.platform-board-link {
+    color: var(--color-accent);
+    text-decoration-line: underline;
+    text-decoration-color: rgb(110 231 183 / 0.45);
+    text-underline-offset: 0.25rem;
+    transition: color 0.15s, text-decoration-color 0.15s;
+}
+.platform-board-link:hover {
+    color: var(--color-paper);
+    text-decoration-color: var(--color-accent);
+}
+.platform-chip__badge {
+    margin-left: 0.45rem;
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-mid);
+    opacity: 0.85;
+}
+.platform-chip--bringup .platform-chip__badge {
+    color: rgb(147 197 253);
+    opacity: 0.95;
+}
+.flash-board-card {
+    min-width: 0;
+}
+.flash-board-card .platform-chip {
+    max-width: 100%;
+    color: var(--color-paper);
+    background: rgb(17 21 28 / 0.86);
+    white-space: normal;
+}
+.flash-board-card {
+    min-width: 0;
+}
+.flash-board-card .platform-chip--muted {
+    color: var(--color-paper);
+}
+.flash-board-card .platform-chip__badge {
+    opacity: 0.95;
+}
+.flash-board-card--flashable .platform-chip {
+    border-color: rgb(110 231 183 / 0.55);
+    box-shadow: 0 0 0 1px rgb(110 231 183 / 0.12) inset;
+}
+.flash-board-card--flashable .platform-chip__badge {
+    color: var(--color-accent);
+}
+.flash-board-card--selected {
+    border-color: rgb(110 231 183 / 0.46);
+    background:
+        linear-gradient(135deg, rgb(110 231 183 / 0.08), transparent 42%),
+        rgb(22 27 36 / 0.56);
+}
+.flash-board-card--qualification .platform-chip {
+    border-color: rgb(252 211 77 / 0.55);
+    box-shadow: 0 0 0 1px rgb(252 211 77 / 0.12) inset;
+}
+.flash-board-card--qualification .platform-chip__badge {
+    color: rgb(253 230 138);
+}
+.flash-board-card--bringup .platform-chip {
+    border-style: dashed;
+    border-color: rgb(96 165 250 / 0.55);
+    box-shadow: 0 0 0 1px rgb(96 165 250 / 0.08) inset;
+}
+.flash-board-card--bringup .platform-chip__badge {
+    color: rgb(147 197 253);
+}
+.flash-board-card--roadmap .platform-chip {
+    color: var(--color-soft);
+    border-style: dashed;
+    border-color: rgb(108 116 128 / 0.55);
+}
+.flash-board-card--roadmap .platform-chip__badge {
+    color: var(--color-mid);
+}
+.flash-board-silicon {
+    color: rgb(165 172 184 / 0.68);
+}
+.flash-interface-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.9rem;
+    padding: 0.42rem 0.68rem;
+    border: 1px solid rgb(165 172 184 / 0.22);
+    border-radius: 0.55rem;
+    background: rgb(17 21 28 / 0.72);
+    color: var(--color-paper);
+    font-size: 0.78rem;
+    line-height: 1;
+}
+.flash-interfaces-pending {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.9rem;
+    padding: 0.42rem 0.68rem;
+    border: 1px dashed rgb(108 116 128 / 0.42);
+    border-radius: 0.55rem;
+    color: var(--color-mid);
+    background: rgb(17 21 28 / 0.42);
+    font-size: 0.78rem;
+    line-height: 1.25;
+}
+.flash-card-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 2.2rem;
+    padding: 0.48rem 0.74rem;
+    border: 1px solid rgb(110 231 183 / 0.42);
+    border-radius: 0.55rem;
+    background: rgb(110 231 183 / 0.09);
+    color: var(--color-accent);
+    font-size: 0.8rem;
+    font-weight: 650;
+    line-height: 1;
+    text-decoration: none;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.flash-card-action:hover {
+    border-color: rgb(110 231 183 / 0.72);
+    background: rgb(110 231 183 / 0.15);
+    color: var(--color-paper);
+}
+.flash-card-action__arrow {
+    line-height: 1;
+    transition: transform 0.15s;
+}
+.flash-card-action:hover .flash-card-action__arrow {
+    transform: translateX(2px);
+}
+.flash-flasher-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    justify-content: space-between;
+    max-width: 44rem;
+    border: 1px solid rgb(110 231 183 / 0.22);
+    border-radius: var(--radius-card);
+    background:
+        linear-gradient(135deg, rgb(110 231 183 / 0.1), transparent 38%),
+        rgb(17 21 28 / 0.78);
+    padding: 1.25rem;
+    box-shadow: var(--shadow-card);
+}
+.flash-flasher-panel__main {
+    min-width: 0;
+}
+.flash-flasher-panel__action {
+    width: 100%;
+}
+.flash-local-panel {
+    max-width: 44rem;
+}
+.flash-artifact-panel,
+.flash-plan-panel {
+    border: 1px solid rgb(165 172 184 / 0.16);
+    border-radius: 0.72rem;
+    background: rgb(11 14 19 / 0.32);
+    padding: 1rem;
+}
+.flash-plan-panel {
+    border-color: rgb(110 231 183 / 0.18);
+}
+.flash-preparation {
+    border: 1px solid rgb(165 172 184 / 0.16);
+    border-radius: 0.72rem;
+    background: rgb(11 14 19 / 0.32);
+    padding: 1rem;
+}
+.flash-preparation__steps {
+    display: grid;
+    gap: 0.65rem;
+}
+.flash-preparation__steps li {
+    display: grid;
+    grid-template-columns: 1.45rem minmax(0, 1fr);
+    gap: 0.65rem;
+    align-items: start;
+    color: var(--color-soft);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+.flash-preparation__index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.45rem;
+    height: 1.45rem;
+    border: 1px solid rgb(110 231 183 / 0.28);
+    border-radius: 999px;
+    color: var(--color-accent);
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1;
+}
+.flash-plan-panel__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+.flash-status-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.7rem;
+    padding: 0.34rem 0.58rem;
+    border: 1px solid rgb(165 172 184 / 0.2);
+    border-radius: 999px;
+    background: rgb(17 21 28 / 0.76);
+    color: var(--color-soft);
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.flash-status-chip--ready {
+    border-color: rgb(110 231 183 / 0.42);
+    color: var(--color-accent);
+}
+.flash-status-chip--pending {
+    border-color: rgb(251 191 36 / 0.38);
+    color: rgb(252 211 77);
+}
+.flash-status-chip--blocked {
+    border-color: rgb(108 116 128 / 0.36);
+    color: var(--color-mid);
+}
+.flash-step-list {
+    display: grid;
+    gap: 0.55rem;
+}
+.flash-step-list li {
+    display: grid;
+    grid-template-columns: 1.55rem minmax(0, 1fr);
+    gap: 0.65rem;
+    align-items: start;
+    color: var(--color-soft);
+    font-size: 0.84rem;
+    line-height: 1.45;
+}
+.flash-step-list__index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.55rem;
+    height: 1.55rem;
+    border: 1px solid rgb(110 231 183 / 0.28);
+    border-radius: 999px;
+    color: var(--color-accent);
+    font-size: 0.72rem;
+    font-weight: 800;
+    line-height: 1;
+}
+.flash-artifact-details {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.55rem;
+    border-top: 1px solid rgb(165 172 184 / 0.14);
+    padding-top: 0.85rem;
+}
+.flash-artifact-fact {
+    min-width: 0;
+    border: 1px solid rgb(165 172 184 / 0.12);
+    border-radius: 0.52rem;
+    background: rgb(17 21 28 / 0.42);
+    padding: 0.58rem 0.64rem;
+}
+.flash-artifact-fact__label {
+    display: block;
+    color: var(--color-mid);
+    font-size: 0.62rem;
+    font-weight: 750;
+    letter-spacing: 0.12em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+.flash-artifact-fact__value {
+    display: block;
+    margin-top: 0.42rem;
+    overflow-wrap: anywhere;
+    color: var(--color-paper);
+    font-size: 0.78rem;
+    font-weight: 650;
+    line-height: 1.25;
+}
+.flash-artifact-fact__value--mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 0.72rem;
+}
+.flash-uf2-note {
+    border-left: 2px solid rgb(110 231 183 / 0.48);
+    padding-left: 0.78rem;
+    color: var(--color-soft);
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+.flash-ready-target .platform-chip {
+    color: var(--color-paper);
+    border-color: rgb(110 231 183 / 0.55);
+    background: rgb(17 21 28 / 0.86);
+    box-shadow: 0 0 0 1px rgb(110 231 183 / 0.12) inset;
+}
+.flash-ready-target__summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1rem;
+}
+.flash-ready-target__copy {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 14rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.85rem;
+}
+.flash-primary-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 2.85rem;
+    padding: 0.72rem 1rem;
+    border: 1px solid rgb(110 231 183 / 0.46);
+    border-radius: 0.58rem;
+    background: var(--color-accent);
+    color: var(--color-ink);
+    font-size: 0.9rem;
+    font-weight: 750;
+    line-height: 1;
+    text-decoration: none;
+}
+.flash-primary-action:disabled {
+    cursor: not-allowed;
+    border-color: rgb(108 116 128 / 0.36);
+    background: rgb(108 116 128 / 0.2);
+    color: var(--color-mid);
+}
+.flash-web-install {
+    display: block;
+    width: 100%;
+}
+.flash-wifi-config {
+    margin-bottom: 0.85rem;
+    border: 1px solid rgb(165 172 184 / 0.14);
+    border-radius: 0.64rem;
+    background: rgb(11 14 19 / 0.28);
+    padding: 0.82rem;
+}
+.flash-wifi-grid {
+    display: grid;
+    gap: 0.7rem;
+}
+.flash-wifi-field {
+    display: grid;
+    gap: 0.35rem;
+    color: var(--color-soft);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+.flash-wifi-field span {
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.flash-wifi-field input {
+    width: 100%;
+    min-height: 2.35rem;
+    border: 1px solid rgb(165 172 184 / 0.16);
+    border-radius: 0.5rem;
+    background: rgb(11 14 19 / 0.44);
+    padding: 0.55rem 0.68rem;
+    color: var(--color-paper);
+    font-size: 0.84rem;
+    font-weight: 600;
+    outline: none;
+}
+.flash-wifi-field input:focus {
+    border-color: rgb(110 231 183 / 0.54);
+    box-shadow: 0 0 0 1px rgb(110 231 183 / 0.18);
+}
+.flash-wifi-note {
+    color: var(--color-mid);
+    font-size: 0.76rem;
+    line-height: 1.4;
+    margin-bottom: 0.72rem;
+}
+@media (min-width: 36rem) {
+    .flash-wifi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+.flash-web-install-message {
+    display: block;
+    border: 1px solid rgb(108 116 128 / 0.36);
+    border-radius: 0.58rem;
+    background: rgb(108 116 128 / 0.14);
+    padding: 0.72rem 1rem;
+    color: var(--color-soft);
+    font-size: 0.82rem;
+    font-weight: 650;
+    line-height: 1.35;
+    text-align: center;
+}
+.flash-local-command {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    border: 1px solid rgb(165 172 184 / 0.16);
+    border-radius: 0.45rem;
+    background: rgb(11 14 19 / 0.48);
+    padding: 0.34rem 0.52rem;
+    color: var(--color-accent);
+    font-size: 0.72rem;
+    line-height: 1.25;
+}
+@media (min-width: 30rem) {
+    .flash-artifact-details {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (min-width: 48rem) {
+    .flash-flasher-panel {
+        padding: 1.5rem;
+    }
+}
+@keyframes platform-scroll {
+    to { transform: translateX(-50%); }
+}
+/* Reduced-motion: hold the ticker still (the masked first run stays readable). */
+@media (prefers-reduced-motion: reduce) {
+    .platform-marquee__track { animation: none; }
+}
+
+/* Landing section rhythm + identity. The three card grids (standards,
+   interfaces, routes) shared one flat atom and read as interchangeable slabs;
+   the rules below give each section its own register while staying one system. */
+
+/* Standards cards = guarantees. A 1px accent gradient capping the top edge
+   reads as a certification band, and sets the grid apart from the interface
+   cards (which carry medium glyphs instead of the band). Uses ::after so it
+   coexists with the spotlight glow on ::before. */
+.card-seal::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    background: linear-gradient(to right,
+        transparent,
+        rgb(110 231 183 / 0.5) 22%,
+        rgb(110 231 183 / 0.5) 78%,
+        transparent);
+}
+
+/* Interface medium glyph, drawn in the logo's stroke language (mint, round
+   caps) so each card announces its medium at a glance. */
+.iface-glyph {
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    color: var(--color-accent);
+}
+
+/* The pull quote is the page's emotional center; a faint reticle-ring watermark
+   behind it makes the beat land instead of reading as one more bordered block. */
+.quote-reticle {
+    position: absolute;
+    top: -1rem;
+    right: 0;
+    width: 8rem;
+    height: 8rem;
+    color: var(--color-accent);
+    opacity: 0.07;
+    pointer-events: none;
+}
+@media (min-width: 48rem) {
+    .quote-reticle {
+        right: 0.5rem;
+        width: 11rem;
+        height: 11rem;
+    }
+}
+
+/* Cursor spotlight: a soft accent glow tracking the pointer across each card.
+   --mx/--my are set per-card by a delegated pointermove listener (index.html);
+   no animation, so it stays on under reduced-motion. */
+.spotlight {
+    position: relative;
+}
+.spotlight::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(16rem circle at var(--mx, 50%) var(--my, 50%),
+        rgb(110 231 183 / 0.10),
+        transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+.spotlight:hover::before {
+    opacity: 1;
+}
+
+/* Motion: scroll-reveal + signal-on-hover. All gated behind reduced-motion so a
+   still page is the honored default, not an afterthought. */
+@media (prefers-reduced-motion: no-preference) {
+    /* Cards rise + fade as they enter the viewport. An IntersectionObserver
+       (index.html) adds .is-visible; we animate (not transition) so we never
+       touch the cards' own `transition` property, and the `transform` here
+       composes with the Tailwind `translate` hover-lift instead of fighting it.
+       Works in every browser, unlike the scroll-timeline this replaced. */
+    .reveal {
+        opacity: 0;
+    }
+    .reveal.is-visible {
+        animation: reveal-in 0.6s ease both;
+    }
+
+    /* Interface glyphs come alive on card hover: the broadcast marks (radio,
+       LAN) ripple their arcs; the link marks (wires, routed) run a packet dash
+       along the path. The whole glyph also leans in. */
+    .iface-glyph {
+        transition: transform 0.25s ease;
+    }
+    .iface-card:hover .iface-glyph {
+        transform: scale(1.08);
+    }
+    .iface-card:hover .iface-glyph--radio path,
+    .iface-card:hover .iface-glyph--lan path {
+        animation: sig-pulse 1.4s ease-in-out infinite;
+    }
+    .iface-card:hover .iface-glyph--radio path:nth-of-type(3),
+    .iface-card:hover .iface-glyph--radio path:nth-of-type(4),
+    .iface-card:hover .iface-glyph--lan path:nth-of-type(2) {
+        animation-delay: 0.22s;
+    }
+    .iface-card:hover .iface-glyph--cable line:nth-of-type(1),
+    .iface-card:hover .iface-glyph--cable line:nth-of-type(2),
+    .iface-card:hover .iface-glyph--ip line {
+        stroke-dasharray: 3 4;
+        animation: sig-flow 0.6s linear infinite;
+    }
+}
+
+@keyframes reveal-in {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes sig-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+@keyframes sig-flow {
+    to { stroke-dashoffset: -7; }
+}
+
+/* Routes-in: the call-to-action finale. Each door is colour-coded via its own
+   --route token (mint / signal / warn), with an icon tile, a route-tinted hover,
+   and an arrow that slides on hover. The route colour also tints the spotlight. */
+.route-header {
+    padding: 0.6rem 0.85rem;
+    border-radius: 0.7rem;
+    color: var(--route, var(--color-accent));
+    background: color-mix(in srgb, var(--route, var(--color-accent)) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--route, var(--color-accent)) 22%, transparent);
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+.route-glyph {
+    width: 1.4rem;
+    height: 1.4rem;
+}
+.route-card:hover {
+    border-color: color-mix(in srgb, var(--route, var(--color-accent)) 45%, transparent);
+}
+.route-card:hover .route-header {
+    background: color-mix(in srgb, var(--route, var(--color-accent)) 20%, transparent);
+    border-color: color-mix(in srgb, var(--route, var(--color-accent)) 40%, transparent);
+}
+.route-cta {
+    color: var(--color-mid);
+}
+.route-card:hover .route-cta {
+    color: var(--route, var(--color-accent));
+}
+.route-arrow {
+    transition: transform 0.2s ease;
+}
+.route-card:hover .route-arrow {
+    transform: translateX(4px);
+}
+.route-card.spotlight::before {
+    background: radial-gradient(16rem circle at var(--mx, 50%) var(--my, 50%),
+        color-mix(in srgb, var(--route, var(--color-accent)) 13%, transparent),
+        transparent 60%);
+}
+
+/* Flash board thumbnails: every board sits in one shared slot. Transparent art
+   (real cutouts + build-time white-knockouts) floats in the dark inset; the
+   light plate is parked for any future board with a non-keyable background. */
+.flash-board-slot {
+    width: 4.75rem;
+    height: 4.75rem;
+    flex: none;
+    display: grid;
+    place-items: center;
+    padding: 0.4rem;
+    border-radius: 0.7rem;
+}
+.flash-board-img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+.flash-board-slot--inset {
+    background: linear-gradient(160deg, rgb(8 11 15 / 0.92), rgb(17 21 28 / 0.55));
+    border: 1px solid rgb(255 255 255 / 0.045);
+    box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.6), inset 0 -1px 0 rgb(255 255 255 / 0.05);
+}
+.flash-board-slot--hero {
+    width: 6.25rem;
+    height: 6.25rem;
+    align-self: flex-start;
+    padding: 0.5rem;
+}
+.flash-board-slot--plate {
+    background: linear-gradient(165deg, #f6f8fc, #dfe3ea);
+    border: 1px solid rgb(0 0 0 / 0.06);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.85), inset 0 -2px 5px rgb(0 0 0 / 0.1), 0 1px 2px rgb(0 0 0 / 0.3);
+}

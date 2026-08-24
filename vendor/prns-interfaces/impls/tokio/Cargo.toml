@@ -1,0 +1,112 @@
+[package]
+name = "prns-interfaces-tokio"
+version = "0.3.7"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/KenAKAFrosty/Prns"
+homepage = "https://reticulum.rs"
+rust-version = "1.90"
+description = "Tokio host interface implementations for the Personal Reticulum engine"
+documentation = "https://docs.rs/prns-interfaces-tokio"
+readme = "README.md"
+keywords = ["reticulum", "mesh", "networking", "tokio", "interfaces"]
+categories = ["network-programming", "asynchronous"]
+publish = true
+include = ["src/**", "tests/**", "!tests/**/__pycache__/**", "!tests/**/*.pyc", "examples/**", "Cargo.toml", "README.md"]
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+cfg-if = "1.0"
+prns-config = { version = "=0.3.7", path = "../../../prns-config", optional = true }
+shlex = { version = "1", optional = true }
+# The permissively licensed Unix transport behind the Prns-owned opaque serial stream.
+# Windows opening and macOS/Windows USB enumeration stay in prns-ffi so platform FFI never
+# leaks into the safe host-interface crate.
+serial2-tokio = { version = "0.1.24", optional = true }
+prns-core = { version = "=0.3.7", path = "../../../prns-core", default-features = false, features = ["tokio-host"] }
+prns-runtime = { package = "prns-runtime-tokio", version = "=0.3.7", path = "../../../prns-runtime/impls/tokio", default-features = false }
+heapless = { version = "0.8", default-features = false }
+tokio = { version = "1", optional = true, default-features = false, features = ["rt", "macros", "sync", "time", "io-util"] }
+socket2 = { version = "0.6", optional = true, features = ["all"] }
+if-addrs = { version = "0.13", optional = true }
+getrandom = { version = "0.2", optional = true }
+tokio-tungstenite = { version = "0.28", optional = true, default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring"] }
+futures-util = { version = "0.3", optional = true, default-features = false, features = ["alloc", "sink"] }
+log = { version = "0.4", optional = true, default-features = false }
+tracing = { version = "0.1", optional = true, default-features = false, features = ["std"] }
+btleplug = { version = "0.12", optional = true }
+uuid = { version = "1", optional = true }
+serde = { version = "1", optional = true, features = ["derive"] }
+serde_json = { version = "1", optional = true }
+serde-pickle = { version = "1.2", optional = true }
+url = { version = "2", optional = true }
+mdns-sd = { version = "0.20.2", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17", optional = true, features = ["l2cap", "bluetoothd"] }
+zbus = { version = "4", optional = true, default-features = false, features = ["tokio"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
+nusb = { version = "0.2.4", optional = true, features = ["tokio"] }
+
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+netdev = { version = "0.45", optional = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "windows"))'.dependencies]
+prns-ffi = { version = "=0.3.7", path = "../../../prns-ffi", optional = true, default-features = false }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "test-util"] }
+env_logger = "0.11"
+base64 = "0.22"
+rmpv = "1.3"
+tempfile = "3"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+serial2-tokio = { version = "0.1.24", features = ["unix"] }
+
+[features]
+default = []
+log = ["dep:log", "prns-ffi?/log"]
+tracing = ["dep:tracing"]
+tcp = ["dep:tokio", "tokio/net", "dep:socket2"]
+udp = ["dep:tokio", "tokio/net"]
+serial = ["dep:tokio", "dep:serial2-tokio"]
+kiss = ["dep:tokio"]
+ax25 = ["kiss"]
+rnode = ["dep:tokio", "dep:prns-config", "dep:btleplug", "dep:uuid", "dep:futures-util", "dep:bluer", "tokio/rt"]
+pipe = ["dep:tokio", "tokio/process"]
+backbone = ["tcp"]
+websocket = ["dep:tokio", "tokio/net", "dep:tokio-tungstenite", "dep:rustls", "dep:futures-util"]
+browser-rendezvous = ["websocket", "network-device-selection", "dep:serde", "dep:serde_json", "dep:url", "dep:mdns-sd"]
+i2p = ["dep:tokio", "tokio/net", "dep:socket2", "dep:getrandom", "prns-core/i2p"]
+weave = ["serial", "dep:getrandom"]
+shared-instance = ["dep:tokio", "tokio/net", "dep:getrandom", "dep:serde-pickle", "prns-core/shared-instance-rpc", "prns-runtime/rns-management"]
+network-device-selection = ["dep:if-addrs", "dep:netdev"]
+wifi-auto = ["tcp", "network-device-selection"]
+wifi-auto-apple = ["wifi-auto", "dep:prns-ffi", "dep:getrandom"]
+wifi-auto-mdns = ["wifi-auto", "dep:mdns-sd", "dep:getrandom"]
+wifi-direct = ["tcp", "tokio/process", "dep:zbus", "dep:futures-util", "dep:if-addrs"]
+wifi-aware = ["tcp"]
+usb = ["serial", "tcp", "dep:futures-util", "dep:prns-ffi", "dep:nusb"]
+interface-discovery = ["tcp", "backbone", "dep:getrandom", "prns-core/interface-discovery", "prns-runtime/interface-discovery"]
+config = ["dep:prns-config", "dep:tokio", "dep:if-addrs", "tokio/rt"]
+bluetooth-auto = ["dep:tokio", "tokio/rt", "dep:futures-util", "dep:bluer", "dep:prns-ffi"]
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+significant_drop_in_scrutinee = "warn"
+
+[package.metadata.docs.rs]
+all-features = true

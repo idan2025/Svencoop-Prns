@@ -1,0 +1,104 @@
+[package]
+name = "prns-ffi"
+version = "0.3.7"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/KenAKAFrosty/Prns"
+homepage = "https://reticulum.rs"
+rust-version = "1.90"
+description = "Foreign-function backends and mobile packaging for the Personal Reticulum engine"
+documentation = "https://docs.rs/prns-ffi"
+readme = "README.md"
+keywords = ["reticulum", "mesh", "networking", "ffi"]
+categories = ["api-bindings", "network-programming"]
+publish = true
+include = ["src/**", "tests/**", "!tests/**/__pycache__/**", "!tests/**/*.pyc", "examples/**", "Cargo.toml", "README.md"]
+
+# Standalone workspace: kept out of the root so the engine's default `--workspace`
+# build never unifies this crate's host features (tokio, CoreBluetooth) into the
+# pure, `forbid(unsafe_code)` engine.
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+log = ["dep:log"]
+
+[dependencies]
+cfg-if = "1.0"
+
+# The pure engine. We implement its public interface seams (`BleBackend`, …) here and
+# feed them to its generic supervisors (`BluetoothAuto<B>`). tokio-host pulls the std
+# runtime seam the host backends bridge into.
+prns-core = { version = "=0.3.7", path = "../prns-core", default-features = false, features = ["tokio-host"] }
+# The async runtime the host backends bridge into: channels carry events from the
+# platform's callback world (a GCD queue, a JNI thread) to the manifold; the deadline
+# timer bounds power-on/connect waits.
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "time", "sync"] }
+log = { version = "0.4", optional = true, default-features = false }
+
+# The macOS backend for the native Bluetooth interface: objc2 bindings to CoreBluetooth
+# (CBCentralManager / CBPeripheralManager + CBL2CAPChannel) plus the dispatch2 queue the
+# delegates run on. objc2-core-foundation supplies the CFStream client/dispatch-queue
+# scheduling that drives the L2CAP channel's NSStream halves on that same queue. Apple-only
+# (CoreBluetooth is shared across macOS + iOS), pinned to the objc2 0.6 generation. This is the
+# unsafe FFI the engine forbids — quarantined here and audited with cargo-geiger + Miri.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSNetServices"] }
+objc2-core-bluetooth = "0.3"
+objc2-core-foundation = { version = "0.3", features = ["CFStream", "dispatch2", "CFRunLoop", "CFDate", "CFString", "CFDictionary"] }
+objc2-io-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "serial"] }
+dispatch2 = "0.3"
+
+# The Windows backend rides WinRT (GATT-only): GattServiceProvider for the peripheral/advertise role
+# and a GATT client for central, projected by the official `windows` crate. The WinRT projections are
+# largely safe COM wrappers, but COM apartment init (CoIncrementMTAUsage) is unsafe FFI, so this whole
+# backend stays quarantined here off the engine's forbid-unsafe surface. The features pull the
+# Bluetooth/Radio namespaces plus the Foundation + Storage Streams the GATT buffers and async ride
+# on, and Win32 cfgmgr32 (DeviceAndDriverInstallation) for the serial hot-plug watcher in usb_hotplug.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Devices_Bluetooth",
+    "Devices_Bluetooth_Advertisement",
+    "Devices_Bluetooth_GenericAttributeProfile",
+    "Devices_Radios",
+    "Devices_Enumeration",
+    "Devices_WiFiDirect",
+    "Foundation",
+    "Foundation_Collections",
+    "Security_Credentials",
+    "Storage_Streams",
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_Threading",
+    "Win32_Security",
+    "Win32_Foundation",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Communication",
+    "Win32_Devices_Properties",
+] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+# Same panic-free discipline as the engine. Native calls live here specifically so every unsafe
+# operation has one reviewed invariant rather than leaking throughout otherwise-safe crates.
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+significant_drop_in_scrutinee = "warn"
+undocumented_unsafe_blocks = "deny"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+unsafe_op_in_unsafe_fn = "deny"
+
+[package.metadata.docs.rs]
+all-features = true

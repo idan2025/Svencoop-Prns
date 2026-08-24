@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="org.personal.hopspot.permission.PRNS_CLIENT" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <activity
+            android:name="org.personal.hopspot.PrnsServiceHarnessActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+        <service
+            android:name="org.personal.hopspot.PrnsServiceStatusProbeService"
+            android:exported="true" />
+    </application>
+
+</manifest>

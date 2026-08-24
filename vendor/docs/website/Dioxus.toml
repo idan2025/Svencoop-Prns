@@ -1,0 +1,21 @@
+[application]
+name = "reticulum-site"
+
+[web.app]
+title = "Prns: High-performance Reticulum, built to run on any device"
+
+[web.resource]
+# Inject the compiled Tailwind output into the initial HTML <head> so styling
+# is present before the wasm boots; otherwise the page flashes unstyled.
+# Absolute so it resolves from any route depth (e.g. /benchmarks/<host>); a relative
+# path would break one level deep.
+style = ["/assets/tailwind.css"]
+script = []
+
+[web.resource.dev]
+style = []
+script = []
+
+[web.watcher]
+reload_html = true
+watch_path = ["src", "content", "i18n", "assets"]

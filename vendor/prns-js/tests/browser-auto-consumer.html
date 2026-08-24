@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>RUNNING</title>
+  </head>
+  <body data-outcome="Pending">
+    <script type="module">
+      import {
+        Prns,
+        linkId,
+        persistentBrowser,
+      } from "/prns-js/dist/browser/index.js";
+
+      async function compressionWorkerOutcome(workerUrl, moduleUrl) {
+        const compressionWorker = new Worker(workerUrl, { type: "module" });
+        const compressionPayload = new Uint8Array(4096).fill(5);
+        const compressionMetadata = new Uint8Array(32).fill(6);
+        let detail = "timeout";
+        const compressed = await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            resolve(false);
+          }, 5000);
+          compressionWorker.addEventListener("message", (event) => {
+            clearTimeout(timeout);
+            detail = event.data.error ?? "message";
+            resolve(
+              event.data.candidate instanceof ArrayBuffer &&
+                event.data.candidate.byteLength > 0,
+            );
+          }, { once: true });
+          compressionWorker.addEventListener("error", (event) => {
+            clearTimeout(timeout);
+            detail = event.message;
+            resolve(false);
+          }, { once: true });
+          compressionWorker.postMessage(
+            {
+              id: 1,
+              moduleUrl,
+              payload: compressionPayload.buffer,
+              packedMetadata: compressionMetadata.buffer,
+            },
+            [compressionPayload.buffer, compressionMetadata.buffer],
+          );
+        });
+        compressionWorker.terminate();
+        return { compressed, detail };
+      }
+
+      async function routePersistenceOutcome() {
+        try {
+          const wasm = await import("/prns-wasm/smoke/pkg/prns_wasm.js");
+          await wasm.default();
+          const identityLength = wasm.identitySecretKeyLength();
+          const first = new wasm.PrnsRuntime(
+            new Uint8Array(identityLength).fill(11),
+            new Uint8Array(16).fill(15),
+          );
+          const secondIdentity = new Uint8Array(identityLength).fill(12);
+          const second = new wasm.PrnsRuntime(
+            secondIdentity,
+            new Uint8Array(16).fill(16),
+          );
+          const baseTime = Date.now();
+          const interfaceOptions = {
+            kind: "auto-usb-host",
+            channelTag: new TextEncoder().encode("browser-smoke:usb"),
+            bitrateBps: wasm.usbAutoHostBitrateBps(),
+            hardwareMtu: wasm.usbAutoHostHardwareMtu(),
+            nowMs: baseTime,
+          };
+          first.registerInterface(interfaceOptions);
+          const secondInterface = second.registerInterface(interfaceOptions);
+          const destination = first.registerSingleDestination({
+            appName: "browser-smoke",
+            aspects: ["route-persistence"],
+            appData: new Uint8Array(),
+            requestHandlers: [],
+          });
+          first.announce({
+            destination,
+            nowMs: baseTime + 1,
+            entropy: new Uint8Array(128).fill(13),
+          });
+          const announced = first.drainOutbound()[0];
+          if (!announced) {
+            return "Failed:MissingAnnounce";
+          }
+          second.ingest({
+            interfaceId: secondInterface,
+            bytes: announced.bytes,
+            nowMs: baseTime + 2,
+            entropy: new Uint8Array(128).fill(14),
+          });
+          const before = second.snapshot();
+          const persisted = second.persistedState({ nowMs: baseTime + 3 });
+          const restored = new wasm.PrnsRuntime(
+            secondIdentity,
+            new Uint8Array(16).fill(16),
+          );
+          const report = restored.restorePersistedState({
+            ...persisted,
+            nowMs: baseTime + 4,
+          });
+          const after = restored.snapshot();
+          return before.routeSnapshots.length === 1 &&
+            before.destinationIdentities.length === 1 &&
+            report.routes === 1 &&
+            report.destinationIdentities === 1 &&
+            after.routeSnapshots.length === 1 &&
+            after.destinationIdentities.length === 1
+            ? "Restored"
+            : "Failed:Mismatch";
+        } catch (error) {
+          return `Failed:${error instanceof Error ? error.message : error}`;
+        }
+      }
+
+      async function webSocketFramingOutcome() {
+        let automatic;
+        let fallback;
+        let hdlcFallback;
+        try {
+          const wasm = await import("/prns-wasm/smoke/pkg/prns_wasm.js");
+          await wasm.default();
+          const packet = new Uint8Array([
+            0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+            0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x00, 0x42,
+          ]);
+          const kiss = new Uint8Array([0xc0, 0x00, ...packet, 0xc0]);
+          const hdlc = new Uint8Array([0x7e, ...packet, 0x7e]);
+          automatic = new wasm.WebSocketFramingCodec("auto");
+          if (automatic.stageOutbound(packet) !== undefined) {
+            return "Failed:OutboundNotHeld";
+          }
+          const batch = automatic.decode(kiss);
+          if (
+            automatic.isDetecting() ||
+            batch.packets.length !== 1 ||
+            !equalBytes(batch.packets[0], packet) ||
+            !equalBytes(batch.resolvedOutbound, kiss)
+          ) {
+            return "Failed:KissResolution";
+          }
+          fallback = new wasm.WebSocketFramingCodec("auto");
+          fallback.stageOutbound(packet);
+          if (
+            !fallback.rawFallbackIsArmed() ||
+            !equalBytes(fallback.releaseRawFallback(), packet) ||
+            fallback.rawFallbackIsArmed() ||
+            !fallback.isDetecting() ||
+            !fallback.canStageMultipleOutbound() ||
+            !equalBytes(fallback.stageOutbound(packet), packet)
+          ) {
+            return "Failed:RawFallback";
+          }
+          const lateBatch = fallback.decode(kiss);
+          if (
+            fallback.isDetecting() ||
+            lateBatch.packets.length !== 1 ||
+            !equalBytes(lateBatch.packets[0], packet) ||
+            lateBatch.resolvedOutbound !== undefined ||
+            !equalBytes(fallback.stageOutbound(packet), kiss)
+          ) {
+            return "Failed:LateKissResolution";
+          }
+          hdlcFallback = new wasm.WebSocketFramingCodec("auto");
+          hdlcFallback.stageOutbound(packet);
+          if (
+            !equalBytes(hdlcFallback.releaseRawFallback(), packet) ||
+            !hdlcFallback.isDetecting()
+          ) {
+            return "Failed:HdlcRawFallback";
+          }
+          const lateHdlcBatch = hdlcFallback.decode(hdlc);
+          if (
+            hdlcFallback.isDetecting() ||
+            lateHdlcBatch.packets.length !== 1 ||
+            !equalBytes(lateHdlcBatch.packets[0], packet) ||
+            lateHdlcBatch.resolvedOutbound !== undefined ||
+            !equalBytes(hdlcFallback.stageOutbound(packet), hdlc)
+          ) {
+            return "Failed:LateHdlcResolution";
+          }
+          return "Resolved";
+        } catch (error) {
+          return `Failed:${error instanceof Error ? error.message : error}`;
+        } finally {
+          automatic?.free();
+          fallback?.free();
+          hdlcFallback?.free();
+        }
+      }
+
+      function equalBytes(left, right) {
+        return left instanceof Uint8Array &&
+          right instanceof Uint8Array &&
+          left.length === right.length &&
+          left.every((byte, index) => byte === right[index]);
+      }
+
+      const [packagedCompression, docsCompression] = await Promise.all([
+        compressionWorkerOutcome(
+          "/prns-js/dist/browser/resource_compression_worker.js",
+          "/prns-js/wasm/prns_wasm.js",
+        ),
+        compressionWorkerOutcome(
+          "/docs/website/public/browser-node-playground-console/sdk/browser/resource_compression_worker.js",
+          "/docs/website/public/browser-node-playground-console/pkg/prns_wasm.js",
+        ),
+      ]);
+      const compression =
+        packagedCompression.compressed && docsCompression.compressed;
+      const compressionDetail =
+        `${packagedCompression.detail}:${docsCompression.detail}`;
+      const routePersistence = await routePersistenceOutcome();
+      const webSocketFraming = await webSocketFramingOutcome();
+      document.body.dataset.routePersistence = routePersistence;
+      document.body.dataset.webSocketFraming = webSocketFraming;
+      document.body.dataset.compression =
+        compression ? "Compressed" : "Failed";
+      document.body.dataset.compressionDetail = compressionDetail;
+      const persistenceRoot = "prns.browser-smoke";
+      localStorage.removeItem(`${persistenceRoot}.identity.v1`);
+      localStorage.removeItem(`${persistenceRoot}.ble-identity.v1`);
+      localStorage.removeItem(`${persistenceRoot}.state.v1`);
+      const persistentOptions = persistentBrowser(persistenceRoot);
+      const firstPersistent = await Prns.create(persistentOptions);
+      let persistence = "Failed";
+      if (firstPersistent.tag === "Ready") {
+        const firstDestination = firstPersistent.data.registerSingleDestination({
+          appName: "browser-smoke",
+          aspects: ["persistence"],
+          requestHandlers: [],
+        });
+        const firstStopped = await firstPersistent.data.stop();
+        const restored = await Prns.create(persistentOptions);
+        if (restored.tag === "Ready") {
+          const diagnostics = restored.data.claimDiagnostics();
+          const restoration = diagnostics.tag === "Claimed"
+            ? await diagnostics.data[Symbol.asyncIterator]().next()
+            : { done: true };
+          const secondDestination = restored.data.registerSingleDestination({
+            appName: "browser-smoke",
+            aspects: ["persistence"],
+            requestHandlers: [],
+          });
+          const restoredSnapshot = restored.data.hostSnapshot();
+          const restoredStopped = await restored.data.stop();
+          const flushedSnapshot = restored.data.hostSnapshot();
+          const sameDestination =
+            firstDestination.tag === "Registered" &&
+            secondDestination.tag === "Registered" &&
+            firstDestination.data.every(
+              (byte, index) => byte === secondDestination.data[index],
+            );
+          if (
+            firstStopped.tag === "Stopped" &&
+            restoredStopped.tag === "Stopped" &&
+            sameDestination &&
+            restoration.done === false &&
+            restoration.value.tag === "PersistenceRestored" &&
+            restoration.value.data.ratchets === 1 &&
+            restoredSnapshot.tag === "Captured" &&
+            restoredSnapshot.data.persistence.persistent &&
+            restoredSnapshot.data.persistence.restored &&
+            flushedSnapshot.tag === "Captured" &&
+            flushedSnapshot.data.persistence.lastFlushCause === "Shutdown"
+          ) {
+            persistence = "Restored";
+          }
+        }
+      }
+      document.body.dataset.persistence = persistence;
+      const corruptPersistence = await Prns.create({
+        ...persistentOptions,
+        persistenceStore: {
+          async load() {
+            return {
+              tag: "Loaded",
+              data: { type: "persistedState", persistenceVersion: 1 },
+            };
+          },
+          async save() {
+            return { tag: "Saved" };
+          },
+        },
+      });
+      const saveFailure = await Prns.create({
+        ...persistentOptions,
+        persistenceStore: {
+          async load() {
+            return { tag: "Missing" };
+          },
+          async save() {
+            return {
+              tag: "PersistenceStoreFailed",
+              data: { operation: "Save", detail: "fixture denied" },
+            };
+          },
+        },
+      });
+      let persistenceFailures = "Failed";
+      if (saveFailure.tag === "Ready") {
+        const stopped = await saveFailure.data.stop();
+        const snapshot = saveFailure.data.hostSnapshot();
+        if (
+          corruptPersistence.tag === "StoredPersistenceInvalid" &&
+          stopped.tag === "OperationFailed" &&
+          snapshot.tag === "Captured" &&
+          snapshot.data.persistence.lastFailureDetail?.includes(
+            "fixture denied",
+          )
+        ) {
+          persistenceFailures = "Typed";
+        }
+      }
+      document.body.dataset.persistenceFailures = persistenceFailures;
+      const outcome = await Prns.create({});
+      document.body.dataset.outcome = outcome.tag;
+      if (outcome.tag !== "Ready") {
+        document.title = "FAIL";
+      } else {
+        const unknownLink = linkId(new Uint8Array(16));
+        const closed = await outcome.data.closeLink(unknownLink);
+        document.body.dataset.command = `${closed.tag}:${closed.data.tag}`;
+        const resource = await outcome.data.sendResource(
+          unknownLink,
+          new Uint8Array(4096).fill(7),
+          { packedMetadata: new Uint8Array(32).fill(8) },
+        );
+        document.body.dataset.resource = `${resource.tag}:${resource.data.tag}`;
+        const blob = await outcome.data.sendResourceBlob(
+          unknownLink,
+          new Blob([new Uint8Array(1024).fill(9)]),
+        );
+        document.body.dataset.blob = `${blob.tag}:${blob.data.tag}`;
+        const snapshot = outcome.data.hostSnapshot();
+        const snapshotConsistent =
+          snapshot.tag === "Captured" &&
+          snapshot.data.backend.backend === "Cooperative" &&
+          snapshot.data.interfaces.length ===
+            snapshot.data.runtime.interfaceCount &&
+          snapshot.data.routes.length === snapshot.data.runtime.routeCount &&
+          snapshot.data.activeLinkCount === snapshot.data.runtime.linkCount &&
+          !snapshot.data.persistence.persistent;
+        document.body.dataset.snapshot = snapshotConsistent
+          ? "Consistent"
+          : "Inconsistent";
+        document.title =
+          closed.tag === "Failed" &&
+          closed.data.tag === "UnknownLink" &&
+          resource.tag === "Failed" &&
+          resource.data.tag === "UnknownLink" &&
+          blob.tag === "Failed" &&
+          blob.data.tag === "UnknownLink" &&
+          snapshotConsistent &&
+          persistence === "Restored" &&
+          persistenceFailures === "Typed" &&
+          routePersistence === "Restored" &&
+          webSocketFraming === "Resolved" &&
+          compression
+            ? "PASS"
+            : "FAIL";
+      }
+      await fetch("/browser-smoke-result", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: document.title,
+          outcome: document.body.dataset.outcome,
+          command: document.body.dataset.command,
+          resource: document.body.dataset.resource,
+          blob: document.body.dataset.blob,
+          snapshot: document.body.dataset.snapshot,
+          persistence: document.body.dataset.persistence,
+          persistenceFailures: document.body.dataset.persistenceFailures,
+          routePersistence: document.body.dataset.routePersistence,
+          webSocketFraming: document.body.dataset.webSocketFraming,
+          compression: document.body.dataset.compression,
+          compressionDetail: document.body.dataset.compressionDetail,
+        }),
+      });
+    </script>
+  </body>
+</html>

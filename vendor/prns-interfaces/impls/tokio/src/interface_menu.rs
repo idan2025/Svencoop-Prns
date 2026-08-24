@@ -1,0 +1,47 @@
+#[cfg(any(feature = "wifi-auto", feature = "usb", feature = "bluetooth-auto"))]
+pub use crate::attachment::DefaultAutoInterfaces;
+#[cfg(feature = "ax25")]
+pub use crate::ax25_kiss::Ax25KissInterface;
+#[cfg(feature = "backbone")]
+pub use crate::backbone::BackboneClientInterface;
+#[cfg(feature = "backbone")]
+pub use crate::backbone::BackboneServer;
+#[cfg(feature = "bluetooth-auto")]
+pub use crate::bluetooth_auto::BluetoothAuto;
+#[cfg(feature = "bluetooth-auto")]
+pub use crate::bluetooth_auto::{AttachedBle, AutoBle};
+#[cfg(feature = "config")]
+pub use crate::from_plan::FromPlan;
+#[cfg(feature = "kiss")]
+pub use crate::kiss::KissInterface;
+#[cfg(feature = "pipe")]
+pub use crate::pipe::PipeInterface;
+#[cfg(feature = "rnode")]
+pub use crate::rnode::RNodeInterface;
+#[cfg(feature = "serial")]
+pub use crate::serial::SerialInterface;
+#[cfg(feature = "shared-instance")]
+pub use crate::shared_instance::SharedInstanceServer;
+#[cfg(feature = "tcp")]
+pub use crate::tcp::TcpClientInterface;
+#[cfg(feature = "tcp")]
+pub use crate::tcp::TcpServer;
+#[cfg(feature = "udp")]
+pub use crate::udp::UdpInterface;
+#[cfg(all(
+    feature = "usb",
+    any(target_os = "linux", target_os = "macos", target_os = "windows")
+))]
+pub use crate::usb_auto::AutoUsb;
+#[cfg(feature = "usb")]
+pub use crate::usb_auto::UsbAutoHost;
+#[cfg(feature = "weave")]
+pub use crate::weave::WeaveInterface;
+#[cfg(feature = "websocket")]
+pub use crate::websocket::WebSocketClientInterface;
+#[cfg(feature = "websocket")]
+pub use crate::websocket::WebSocketServer;
+#[cfg(feature = "wifi-auto")]
+pub use crate::wifi_auto::AutoWifi;
+#[cfg(feature = "wifi-direct")]
+pub use crate::wifi_direct::WifiDirectAuto;

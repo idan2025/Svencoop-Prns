@@ -1,0 +1,587 @@
+name: ci
+
+on:
+  push:
+    branches: [trunk]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Warnings fail the build for *our* crates. Cargo applies `--cap-lints allow` to
+  # registry dependencies, so this never breaks on third-party warnings.
+  RUSTFLAGS: "-D warnings --cfg aes_armv8"
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      - name: registry, format, and documentation gate
+        run: bash validation/hygiene/fmt-docs.sh
+
+  clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      - run: cargo test --workspace --locked
+      - name: doc (intra-doc links are load-bearing navigation)
+        run: cargo doc --locked -p prns-core -p prns-runtime -p personal-rns --no-deps --document-private-items --quiet
+
+  feature-configs:
+    # The jobs above only build the default features (`std` + `std-sync-host`). The async host
+    # lane (tokio-host/tcp/udp) and the embassy-host lane are feature-gated, so the default
+    # `clippy`/`test` never compile, lint, or run them — that is exactly how a tokio-host
+    # `clippy::expect_used` and a non-exhaustive `match` in an embassy test both reached main
+    # unseen. This job lints, tests, and doc-checks each lane on its own.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      - name: Install Linux desktop link dependency
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - name: clippy and test — prns-core external-alloc
+        run: bash validation/native/external-alloc.sh
+      # Counter dimensions are feature-gated, so the default workspace test does not compile or
+      # execute their owning tests. Keep the regression that motivated iterable enums on a PR lane.
+      - name: test — prns-core runtime-metrics
+        run: cargo test -p prns-core --features std,runtime-metrics --locked
+      # The tokio interface crate: every host interface family above the engine's tokio-host bind,
+      # linted/tested/doc'd as the standalone workspace consumers actually build. --all-features is
+      # honest here — the per-OS BLE backends live in target tables, so Linux gets BlueR and never
+      # sees the mac/win ffi backend.
+      - name: clippy — prns-interfaces-tokio (all features)
+        run: cargo clippy --all-features --all-targets --locked -- -D warnings
+        working-directory: prns-interfaces/impls/tokio
+      - name: test — prns-interfaces-tokio (all features)
+        run: cargo test --all-features --locked
+        working-directory: prns-interfaces/impls/tokio
+      - name: doc — prns-interfaces-tokio (all features)
+        run: cargo doc --locked --no-deps --document-private-items --all-features --quiet
+        env:
+          RUSTDOCFLAGS: "-D rustdoc::broken_intra_doc_links"
+        working-directory: prns-interfaces/impls/tokio
+      - name: clippy — prns-runtime-tokio
+        run: cargo clippy --all-features --all-targets --locked -- -D warnings
+        working-directory: prns-runtime/impls/tokio
+      - name: test — prns-runtime-tokio
+        run: cargo test --all-features --locked
+        working-directory: prns-runtime/impls/tokio
+      - name: doc — prns-runtime-tokio
+        run: cargo doc --locked --no-deps --document-private-items --all-features --quiet
+        working-directory: prns-runtime/impls/tokio
+        env:
+          RUSTDOCFLAGS: "-D rustdoc::broken_intra_doc_links"
+      # The umbrella on the same lane — the config a consumer enabling tokio-host on top of the
+      # defaults actually ships, catching a std-sync-host <-> tokio-host feature-unification break
+      # across all three layers at once. Interface families ride their lane-neutral names, so this
+      # also proves the weak-edge forwarding resolves them to the tokio impls.
+      - name: clippy — personal-rns umbrella, tokio-host lane + families
+        run: cargo clippy -p personal-rns --features tokio-host,tcp,udp,wifi-auto,shared-instance --all-targets --locked -- -D warnings
+      # The same lane-neutral family names on the embassy lane (host-compiled), proving the weak
+      # edges resolve them to the embassy impls instead.
+      - name: clippy — personal-rns umbrella, embassy-host lane + families
+        run: cargo clippy -p personal-rns --no-default-features --features embassy-host,tcp,wifi-auto,lora,esp-now,bluetooth-auto,usb --all-targets --locked -- -D warnings
+      # The embassy interface crate, host-compiled (no_std enforced by the crate itself); its real
+      # cross-builds ride the no-std-embedded job.
+      - name: clippy — prns-interfaces-embassy (all features)
+        run: cargo clippy --all-features --all-targets --locked -- -D warnings
+        working-directory: prns-interfaces/impls/embassy
+      - name: doc — prns-interfaces-embassy (all features)
+        run: cargo doc --locked --no-deps --document-private-items --all-features --quiet
+        env:
+          RUSTDOCFLAGS: "-D rustdoc::broken_intra_doc_links"
+        working-directory: prns-interfaces/impls/embassy
+      # The cross-crate capstones: engine + runtime binds + real interface impls over live loopback
+      # sockets, public API only (the tests that used to live inside personal-rns/tests).
+      - name: clippy — validation integration capstones
+        run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: validation/integration
+      - name: test — validation integration capstones
+        run: cargo test --locked -- --test-threads=1
+        working-directory: validation/integration
+      - name: clippy — prns-runtime-embassy
+        run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: prns-runtime/impls/embassy
+      - name: test — prns-runtime-embassy
+        run: cargo test --locked
+        working-directory: prns-runtime/impls/embassy
+      - name: doc — prns-runtime-embassy
+        run: cargo doc --locked --no-deps --document-private-items --quiet
+        working-directory: prns-runtime/impls/embassy
+        env:
+          RUSTDOCFLAGS: "-D rustdoc::broken_intra_doc_links"
+      # Hopspot desktop face (personal-hopspot/desktop): its own stable-toolchain
+      # workspace, it consumes the runtime Message/Diagnostic enums by *exhaustive* match. Nothing
+      # else in CI builds it (fmt-check only fmt-checks the workspace), so a new runtime event variant
+      # could leave the desktop bin non-compiling, unseen until a hand build (exactly how the
+      # multi-segment and link-guard variants slipped through). This lints and compiles it.
+      - name: clippy — hopspot desktop face
+        run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: personal-hopspot/desktop
+      - name: build — hopspot desktop face
+        run: cargo build --locked
+        working-directory: personal-hopspot/desktop
+      - name: clippy — prns-config
+        run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: prns-config
+      - name: test — prns-config
+        run: cargo test --locked
+        working-directory: prns-config
+      - name: clippy — prnsd
+        run: cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
+        working-directory: prnsd
+      - name: test — prnsd
+        run: cargo test --workspace --all-features --locked
+        working-directory: prnsd
+      - name: clippy — prns-wasm (wasm32)
+        run: cargo clippy --target wasm32-unknown-unknown --all-targets --locked -- -D warnings
+        working-directory: prns-wasm
+
+  flasher-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      RUSTUP_TOOLCHAIN: 1.96.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.96.0
+          components: clippy,rustfmt
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: flasher-contracts
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: docs/website/package-lock.json
+      - uses: cargo-bins/cargo-binstall@57726869e28f4038a847ec56e5fdd9142fded110
+        with:
+          version: "1.21.0"
+      - name: Install exact Dioxus CLI
+        run: cargo binstall --locked --no-confirm --force dioxus-cli@0.7.5
+      - name: Install exact WASM binding CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - name: Shared manifest and standalone CLI
+        run: |
+          rustc --version | grep -E '^rustc 1\.96\.0 '
+          test "$(node --version)" = "v24.18.0"
+          cargo-binstall -V | grep -E '(^| )1\.21\.0($| )'
+          dx --version | grep -E '(^| )0\.7\.5($| )'
+          wasm-bindgen --version | grep -E '^wasm-bindgen 0\.2\.126$'
+          cargo test --locked -p prns-flash-manifest -p hopspot-flash
+      - name: Nordic DFU browser core
+        run: ./tools/prns run build.web-flasher.nrf-dfu.test
+      - name: Shared manifest and standalone CLI lint
+        run: cargo clippy --locked -p prns-flash-manifest -p hopspot-flash --all-targets -- -D warnings
+      - name: Website Rust shell
+        run: cargo clippy --manifest-path docs/website/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Website Rust format
+        run: cargo fmt --manifest-path docs/website/Cargo.toml -- --check
+      - name: Website Rust contract tests
+        run: cargo test --manifest-path docs/website/Cargo.toml --locked
+      - name: Exact JavaScript graph and fake-serial suite
+        working-directory: docs/website
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run test:flasher
+          npm run build:flasher
+          npm run build:css
+      - name: Production browser-test and embedded-output boundary
+        working-directory: docs/website
+        run: |
+          npm ls --depth=0 @playwright/test@1.61.1 @axe-core/playwright@4.12.1
+          ./node_modules/.bin/playwright --version | grep -E '^Version 1\.61\.1$'
+          ./node_modules/.bin/playwright install --with-deps chromium
+          npm run test:browser
+          npm run test:production-boundary
+      - name: Production engine and lock audit
+        run: |
+          python3 validation/security/npm-production-audit.py
+          if grep -Ei 'esp-web-install-button|unpkg\.com|esp-web-tools|playwright|axe-core' docs/website/target/hosted-assets/prns-flash.js; then exit 1; fi
+          git diff --exit-code -- docs/website/public/assets/tailwind.css
+
+  release-workflow-contracts:
+    name: Release workflow contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - name: Release critical-path preflight
+        run: python3 validation/run.py run --suite release-contracts --expected-sha "$GITHUB_SHA"
+      - name: Tool task registry and implementation syntax
+        run: ./tools/prns verify
+
+  msrv:
+    # The declared MSRV (workspace `rust-version`) must actually build. Pinned to the
+    # declared workspace floor (1.90); catches a feature or a dependency bump that
+    # quietly requires a newer compiler than we advertise.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: 1.90.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - name: Install Linux native development packages
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.90.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      - name: Prove and check the advertised MSRV
+        run: |
+          rustc --version | grep -E '^rustc 1\.90\.0 '
+          cargo check --workspace --locked
+      # The root-excluded workspaces declare the same 1.90 floor; hold them to it too.
+      - run: cargo check --locked
+        working-directory: prns-config
+      - run: cargo check --locked
+        working-directory: prns-napi
+      - run: cargo check --workspace --locked
+        working-directory: prnsd
+
+  no-std-embedded:
+    # The forcing-function gate: the core stays no_std + alloc-free and cross-compiles
+    # to the ESP32-C6 (riscv32imac). Reuses the committed script verbatim.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: llvm-tools-preview
+          targets: riscv32imac-unknown-none-elf, thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      - run: bash validation/platforms/no-std-esp-build.sh
+      - name: prns-interfaces-embassy — cross-build (ESP32-C6 / riscv32imac)
+        run: cargo build --locked --target riscv32imac-unknown-none-elf --features "tcp,wifi-auto,lora,esp-now,bluetooth-auto,usb"
+        working-directory: prns-interfaces/impls/embassy
+      - name: prns-interfaces-embassy — cross-build (nRF52840 / thumbv7em)
+        run: cargo build --locked --target thumbv7em-none-eabihf --features "lora,bluetooth-auto,usb"
+        working-directory: prns-interfaces/impls/embassy
+      - name: t-echo firmware — cross-build both S140 foundations (nRF52840 / thumbv7em)
+        run: |
+          cargo build --release --locked --no-default-features \
+            --features board-t-echo,softdevice-s140-v6 \
+            --target-dir target/s140-v6
+          cargo build --release --locked --no-default-features \
+            --features board-t-echo,softdevice-s140-v7 \
+            --target-dir target/s140-v7
+        working-directory: personal-hopspot/embedded/nrf52840
+      - name: heltec t114 firmware — build recovery-compatible developer UF2
+        run: ./tools/prns build hopspot t114
+      - name: heltec meshtower v2 firmware — build recovery-compatible developer UF2
+        run: ./tools/prns build hopspot mesh-tower-v2
+
+  android-service:
+    # Android is now more than a foreground Activity shell: the Hopspot app packages a foreground
+    # `PrnsService` that owns the local shared-instance server so another signed app can bind to
+    # one compliant daemon instead of starting its own Reticulum instance. This lane builds the JNI
+    # libraries for the shipped ABIs, assembles the APK, and asserts the merged manifest keeps the
+    # foreground-service + signature bind contract intact.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - name: Install Linux native development packages
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: |
+            .
+            personal-hopspot/mobile/android/rust
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - name: install Android SDK pieces
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.2.12479018"
+      - name: install cargo-ndk
+        run: cargo install cargo-ndk --locked --version 4.1.2
+      - name: exact Android release runtime dependency baseline
+        run: ./gradlew :app:verifyReleaseRuntimeDependencies
+        working-directory: personal-hopspot/mobile/android
+      - name: foreground service shared-instance smoke
+        run: bash validation/platforms/android-service-smoke.sh
+
+  macos-ble:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: |
+            prns-ffi
+            prns-interfaces/impls/tokio
+            personal-hopspot/mobile/ios/rust
+            personal-hopspot/desktop
+      - name: Install macOS desktop link dependency
+        run: brew install sdl2
+      - name: test — prns-ffi (CoreBluetooth backend)
+        run: cargo test --all-features --all-targets --locked
+        working-directory: prns-ffi
+      - name: clippy — prns-ffi (CoreBluetooth backend)
+        run: cargo clippy --all-features --all-targets --locked -- -D warnings
+        working-directory: prns-ffi
+      - name: clippy — prns-interfaces-tokio (all features, Apple legs)
+        run: cargo clippy --all-features --all-targets --locked -- -D warnings
+        working-directory: prns-interfaces/impls/tokio
+      - name: clippy — hopspot iOS face crate
+        run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: personal-hopspot/mobile/ios/rust
+      - name: build — hopspot iOS face crate
+        run: cargo build --release --locked
+        working-directory: personal-hopspot/mobile/ios/rust
+      - name: build — hopspot desktop face (macOS)
+        run: cargo build --locked
+        working-directory: personal-hopspot/desktop
+      - name: simulator — hopspot iOS application
+        id: ios-simulator
+        run: |
+          rustup target add aarch64-apple-ios-sim x86_64-apple-ios
+          python3 validation/run.py run --suite ios-simulator
+      - name: upload iOS simulator evidence
+        if: ${{ always() && steps.ios-simulator.outcome != 'skipped' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ios-simulator-${{ github.sha }}
+          path: validation-artifacts/results/ios-simulator
+          if-no-files-found: error
+          retention-days: 7
+
+  windows-desktop:
+    # Windows-only cfg and lint failures must be caught before a release candidate is assembled.
+    # This lane checks the complete prnsd release feature set and builds/lints the Hopspot desktop
+    # face on windows-latest. Hopspot is a plain-std crate on stable (its own rust-toolchain.toml
+    # pins stable; RUSTUP_TOOLCHAIN below reasserts it belt-and-suspenders). It links SDL2 statically
+    # from source on Windows (sdl2 `bundled` + `static-link`, see its Cargo.toml +
+    # .cargo/config.toml); that build needs CMake + the MSVC toolchain, both preinstalled on
+    # windows-latest.
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: personal-hopspot/desktop
+      # `prns-ffi` is an external path dependency of the desktop workspace, so Clippy does not lint
+      # its Windows-only unsafe blocks unless the boundary crate is checked directly.
+      - name: clippy — native FFI boundary (Windows)
+        run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: prns-ffi
+      - name: check — complete prnsd release profile (Windows)
+        run: cargo check --locked --no-default-features --features tokio-host,observability,tray
+        working-directory: prnsd
+      # Lint + compile parity with the Linux desktop-face step in feature-configs: this is what would
+      # have caught the snapshot-refactor type mismatch that left main non-compiling.
+      - name: clippy — hopspot desktop face (Windows)
+        run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: personal-hopspot/desktop
+      # Clippy stops before the final link, so it never exercises the static SDL2 link. A real build
+      # does — proving the self-contained, no-DLL Windows binary actually links.
+      - name: build — hopspot desktop face (static SDL2 links)
+        run: cargo build --locked
+        working-directory: personal-hopspot/desktop
+
+  local-interop:
+    # Real-RNS interop: the LocalServer shared instance against a stock RNS client, proving the wire
+    # and control RPC match what Sideband/NomadNet/MeshChat actually speak — not just our own framing.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - name: Install Linux native development packages
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - name: install the reference RNS (rns==1.4.2)
+        run: uv venv /tmp/rns && uv pip install --python /tmp/rns/bin/python -r validation/oracles/requirements.txt
+      - name: install the control-RPC reference RNS (rns==1.4.2)
+        run: uv venv /tmp/rns-rpc && uv pip install --python /tmp/rns-rpc/bin/python -r validation/oracles/requirements.txt
+      - name: PR deterministic oracle lane
+        run: python3 validation/run.py run --domain oracles --tier pr --expected-sha "$GITHUB_SHA"
+        env:
+          SMOKE_PYTHON: /tmp/rns/bin/python
+          RPC_SMOKE_PYTHON: /tmp/rns-rpc/bin/python
+      - name: PR live interop lane
+        run: python3 validation/run.py run --domain interop --tier pr --expected-sha "$GITHUB_SHA"
+        env:
+          SMOKE_PYTHON: /tmp/rns/bin/python
+          RPC_SMOKE_PYTHON: /tmp/rns-rpc/bin/python
+      - name: upload oracle evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr-oracles-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: validation-artifacts/results/**
+
+  deny:
+    # Locked release graph matrix: zero-copyleft licenses, RustSec, sources, unsafe drift, notices.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: 1.96.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.96.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: release-dependency-audit
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: docs/website/package-lock.json
+      - name: install pinned audit tools
+        run: |
+          cargo install cargo-deny --version 0.19.8 --locked
+          cargo install cargo-about --version 0.9.1 --locked --features cli
+      - name: complete release dependency audit
+        run: bash validation/security/deps-audit.sh
+      - name: reject dirty generated release notices
+        run: git diff --exit-code -- THIRD_PARTY_NOTICES.md
+      - name: record exact release audit commit
+        run: ./tools/prns release audit-evidence write
+      - name: upload release audit evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-dependency-audit
+          retention-days: 7
+          path: |
+            release-audit-evidence.md
+            docs/release-dependency-audit.md
+            THIRD_PARTY_NOTICES.md
+            audits/unsafe-snapshot.json
+            personal-hopspot/mobile/android/dependencies/release-runtime.tsv
+
+  release-critical:
+    name: Release critical
+    if: always()
+    needs:
+      - fmt
+      - clippy
+      - test
+      - feature-configs
+      - flasher-contracts
+      - release-workflow-contracts
+      - msrv
+      - no-std-embedded
+      - android-service
+      - macos-ble
+      - windows-desktop
+      - local-interop
+      - deny
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      FMT_RESULT: ${{ needs.fmt.result }}
+      CLIPPY_RESULT: ${{ needs.clippy.result }}
+      TEST_RESULT: ${{ needs.test.result }}
+      FEATURES_RESULT: ${{ needs.feature-configs.result }}
+      FLASHER_RESULT: ${{ needs.flasher-contracts.result }}
+      WORKFLOWS_RESULT: ${{ needs.release-workflow-contracts.result }}
+      MSRV_RESULT: ${{ needs.msrv.result }}
+      EMBEDDED_RESULT: ${{ needs.no-std-embedded.result }}
+      ANDROID_RESULT: ${{ needs.android-service.result }}
+      APPLE_RESULT: ${{ needs.macos-ble.result }}
+      WINDOWS_RESULT: ${{ needs.windows-desktop.result }}
+      INTEROP_RESULT: ${{ needs.local-interop.result }}
+      DENY_RESULT: ${{ needs.deny.result }}
+    steps:
+      - name: Require every release-critical lane
+        run: |
+          for result in \
+            "$FMT_RESULT" \
+            "$CLIPPY_RESULT" \
+            "$TEST_RESULT" \
+            "$FEATURES_RESULT" \
+            "$FLASHER_RESULT" \
+            "$WORKFLOWS_RESULT" \
+            "$MSRV_RESULT" \
+            "$EMBEDDED_RESULT" \
+            "$ANDROID_RESULT" \
+            "$APPLE_RESULT" \
+            "$WINDOWS_RESULT" \
+            "$INTEROP_RESULT" \
+            "$DENY_RESULT"; do
+            test "$result" = "success"
+          done

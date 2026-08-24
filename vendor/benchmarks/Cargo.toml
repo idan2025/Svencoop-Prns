@@ -1,0 +1,157 @@
+[package]
+name = "personal-reticulum-suite-benchmarks"
+version = "0.0.0"
+publish = false
+edition = "2021"
+autobins = false
+
+# Standalone, like `validation/fuzz/`: an empty `[workspace]` detaches this from the root so
+# the engine `--workspace` gates never pull in dev tooling, and it can
+# move at its own pace. Builds via its own manifest.
+[workspace]
+
+# Builds participant_node on the fixed embedded layout (Esp32S3) instead of the default
+# unbounded GrowableHeap — lets the suite measure the on-device storage profile on-host.
+[features]
+default = ["parallel-persistence", "parallel-resource-hash"]
+fixed-storage = ["personal-rns/external-alloc", "dep:allocator-api2"]
+parallel-persistence = ["personal-rns/parallel-persistence"]
+parallel-resource-hash = ["personal-rns/parallel-resource-hash"]
+dhat-heap = ["dep:dhat"]
+# Explicit opt-in for the deterministic microscope that needs an installed Valgrind runner.
+callgrind = []
+
+[lib]
+name = "benchmarks"
+path = "src/lib.rs"
+bench = false
+
+[dependencies]
+personal-rns = { path = "../personal-rns", features = ["tokio-host", "tcp"] }
+prns-macros = { path = "../prns-macros" }
+allocator-api2 = { version = "0.3", optional = true }
+dhat = { version = "0.3", optional = true }
+# The result substrate is JSON rows (the cross-implementation schema); the energy drivers
+# emit them and `render_results` reads them back to render RESULTS.md.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+# The live-scenario participation binary rides the real tokio manifold over real TCP;
+# the benchmark runner owns process lifecycle and the line protocol.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
+# Fresh per-run identities for the participant nodes (the corpus bins keep fixed ones).
+getrandom = "0.2"
+# Cross-platform host spec gathering for `describe_host` (CPU model, cores, RAM, OS) —
+# the per-host reproducibility descriptor that sits beside each host's result rows.
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+# Platform sampling for the live runner: macOS reaps each role with `wait4` for its
+# peak RSS + CPU rusage (no /proc), and gates the powermetrics energy path on `geteuid`.
+# Linux reads /proc exactly at CPU bracket boundaries and reaps with wait4.
+libc = "0.2"
+# Stable identity for the result substrate: a per-device and per-submitter UUID stamped on
+# every row, so figures from different machines/people can be joined later (the `host` triple
+# is only a class — two M4s share it).
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[target.'cfg(not(windows))'.dev-dependencies]
+pprof = { version = "0.14", features = ["flamegraph", "criterion"] }
+
+[dev-dependencies]
+# Timing harness for the engine microscope (lean: no plotters/rayon).
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+iai-callgrind = "0.16.1"
+# Heap-allocation profiling for the engine microscope examples. Each example owns its
+# own `#[global_allocator] = dhat::Alloc`, so the lib / iai / criterion paths are
+# untouched — the instrumented allocator only exists inside that one example binary.
+dhat = "0.3"
+
+# --- Result substrate: our driver emits rows; the renderer turns rows into RESULTS.md ---
+[[bin]]
+name = "describe_host"
+path = "src/bin/describe_host.rs"
+bench = false
+
+# --- Release harness: one participant, one runner, and required helpers ---
+[[bin]]
+name = "participant_node"
+path = "src/bin/participant_node/main.rs"
+bench = false
+
+[[bin]]
+name = "raw_transport_driver"
+path = "src/bin/raw_transport_driver.rs"
+bench = false
+
+[[bin]]
+name = "benchmark_runner"
+path = "src/bin/benchmark_runner/main.rs"
+bench = false
+
+[[bin]]
+name = "benchmark_cli"
+path = "src/bin/benchmark_cli.rs"
+bench = false
+
+[[bin]]
+name = "render_results"
+path = "src/bin/render_results.rs"
+bench = false
+
+# --- Microscope: drive the engine directly, no I/O — the control baseline for crypto work ---
+[[bench]]
+name = "engine_cycle"
+path = "benches/engine_cycle.rs"
+harness = false
+
+[[bench]]
+name = "engine_cycle_iai"
+path = "benches/engine_cycle_iai.rs"
+harness = false
+# This executable intentionally requires an installed Callgrind runner. Keep it available to
+# an explicit profiling command, but do not launch it as an ordinary `cargo test --all-targets`
+# target on developer and CI machines without the profiling toolchain.
+required-features = ["callgrind"]
+
+# --- Route-lookup crossover: linear scan vs. Lemire-indexed columns across N ---
+[[bench]]
+name = "route_index"
+path = "benches/route_index.rs"
+harness = false
+
+[[bench]]
+name = "route_interface_index"
+path = "benches/route_interface_index.rs"
+harness = false
+
+[[bench]]
+name = "route_expiry"
+path = "benches/route_expiry.rs"
+harness = false
+
+# --- Interface-lookup crossover: bare linear view vs. the heap manifold's indexed roster ---
+[[bench]]
+name = "interface_lookup"
+path = "benches/interface_lookup.rs"
+harness = false
+
+# --- Heap profiling: dhat-instrumented microscopes (own global allocator each) ---
+[[example]]
+name = "dhat_cycle"
+path = "examples/dhat_cycle.rs"
+
+[[example]]
+name = "dhat_forward"
+path = "examples/dhat_forward.rs"
+
+[profile.release]
+debug = true
+lto = "fat"
+codegen-units = 1
+
+[profile.bench]
+debug = true
+lto = "fat"
+codegen-units = 1

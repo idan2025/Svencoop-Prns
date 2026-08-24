@@ -1,0 +1,118 @@
+[package]
+name = "personal-rns"
+version = "0.3.7"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Personal Reticulum: the pure engine, the high-level runtime, and every interface family behind one crate and one prelude"
+documentation = "https://docs.rs/personal-rns"
+readme = "README.md"
+keywords = ["reticulum", "mesh", "networking", "embedded", "no-std"]
+categories = ["network-programming", "embedded", "no-std", "asynchronous"]
+publish = true
+include = ["src/**", "tests/**", "!tests/**/__pycache__/**", "!tests/**/*.pyc", "examples/**", "Cargo.toml", "README.md"]
+
+[lib]
+path = "src/lib.rs"
+
+[[example]]
+name = "node_basics"
+required-features = ["tokio-host", "tcp"]
+
+[[example]]
+name = "auto_discovery"
+required-features = ["tokio-host", "wifi-auto"]
+
+[[example]]
+name = "bounded_request"
+required-features = ["tokio-host", "tcp"]
+
+[[example]]
+name = "resource_transfer"
+required-features = ["tokio-host", "tcp"]
+
+[[example]]
+name = "dynamic_interface"
+required-features = ["tokio-host", "tcp"]
+
+[[example]]
+name = "app_state"
+required-features = ["tokio-host", "tcp"]
+
+[[example]]
+name = "transport_node"
+required-features = ["tokio-host", "tcp"]
+
+[[example]]
+name = "persistence"
+required-features = ["tokio-host", "tcp"]
+
+[features]
+default = ["std", "std-sync-host"]
+alloc = ["prns-core/alloc", "prns-runtime/alloc"]
+rnx = ["alloc", "prns-core/rnx", "prns-runtime/rnx", "prns-runtime-tokio?/rnx", "prns-runtime-embassy?/rnx"]
+signed-artifact = ["alloc", "prns-core/signed-artifact"]
+interface-discovery = ["alloc", "prns-core/interface-discovery", "prns-runtime/interface-discovery", "prns-interfaces-tokio?/interface-discovery"]
+interface-discovery-archive = ["std", "interface-discovery", "prns-core/interface-discovery-archive", "prns-runtime/interface-discovery-archive"]
+external-alloc = ["alloc", "prns-core/external-alloc", "prns-runtime/external-alloc"]
+std = ["alloc", "prns-core/std", "prns-runtime/std"]
+std-sync-host = ["std", "prns-core/std-sync-host"]
+tokio-host = ["std", "dep:prns-runtime-tokio", "dep:prns-interfaces-tokio"]
+embassy-host = ["dep:prns-runtime-embassy", "dep:prns-interfaces-embassy"]
+runtime-metrics = ["tokio-host", "prns-runtime/runtime-metrics", "prns-runtime-tokio/runtime-metrics"]
+tracing = ["tokio-host", "prns-runtime-tokio/tracing", "prns-interfaces-tokio?/tracing"]
+log = ["prns-runtime-embassy?/log", "prns-interfaces-tokio?/log", "prns-interfaces-embassy?/log"]
+stream-compression = ["prns-core/stream-compression"]
+large-static-responses = ["prns-core/large-static-responses"]
+embassy-large-static-responses = ["prns-runtime-embassy?/large-static-responses"]
+parallel-resource-hash = ["prns-core/parallel-resource-hash"]
+parallel-persistence = ["tokio-host", "prns-runtime-tokio/parallel-persistence"]
+test-support = ["prns-core/test-support"]
+keyring-zbus = ["prns-core/keyring-zbus"]
+keyring-libdbus = ["prns-core/keyring-libdbus"]
+flash = ["prns-core/flash"]
+
+tcp = ["prns-interfaces-tokio?/tcp", "prns-interfaces-embassy?/tcp"]
+tcp-dns = ["tcp", "prns-interfaces-embassy?/tcp-dns"]
+wifi-auto = ["prns-interfaces-tokio?/wifi-auto", "prns-interfaces-embassy?/wifi-auto"]
+wifi-auto-apple = ["wifi-auto", "prns-interfaces-tokio?/wifi-auto-apple"]
+wifi-auto-mdns = ["wifi-auto", "prns-interfaces-tokio?/wifi-auto-mdns"]
+wifi-direct = ["prns-interfaces-tokio?/wifi-direct"]
+wifi-aware = ["prns-interfaces-tokio?/wifi-aware"]
+usb = ["prns-interfaces-tokio?/usb", "prns-interfaces-embassy?/usb"]
+config = ["interface-discovery", "prns-interfaces-tokio?/config"]
+bluetooth-auto = ["prns-interfaces-tokio?/bluetooth-auto", "prns-interfaces-embassy?/bluetooth-auto"]
+udp = ["prns-interfaces-tokio?/udp"]
+serial = ["prns-interfaces-tokio?/serial"]
+kiss = ["prns-interfaces-tokio?/kiss"]
+ax25 = ["prns-interfaces-tokio?/ax25"]
+rnode = ["prns-interfaces-tokio?/rnode"]
+pipe = ["prns-interfaces-tokio?/pipe"]
+backbone = ["prns-interfaces-tokio?/backbone"]
+websocket = ["prns-interfaces-tokio?/websocket"]
+browser-rendezvous = ["prns-interfaces-tokio?/browser-rendezvous"]
+i2p = ["prns-interfaces-tokio?/i2p"]
+weave = ["prns-interfaces-tokio?/weave"]
+shared-instance = ["prns-runtime/rns-management", "prns-runtime-tokio?/rns-management", "prns-interfaces-tokio?/shared-instance"]
+lora = ["prns-interfaces-embassy?/lora"]
+esp-now = ["prns-interfaces-embassy?/esp-now"]
+
+[dependencies]
+cfg-if = "1.0"
+prns-core = { version = "=0.3.7", path = "../prns-core", default-features = false }
+prns-runtime = { version = "=0.3.7", path = "../prns-runtime/core", default-features = false }
+prns-runtime-tokio = { version = "=0.3.7", path = "../prns-runtime/impls/tokio", optional = true, default-features = false }
+prns-runtime-embassy = { version = "=0.3.7", path = "../prns-runtime/impls/embassy", optional = true, default-features = false }
+prns-interfaces-tokio = { version = "=0.3.7", path = "../prns-interfaces/impls/tokio", optional = true, default-features = false }
+prns-interfaces-embassy = { version = "=0.3.7", path = "../prns-interfaces/impls/embassy", optional = true, default-features = false }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

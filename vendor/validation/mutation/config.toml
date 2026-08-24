@@ -1,0 +1,71 @@
+# Initial mutation-testing lane. Keep this focused on stable contract-heavy modules until the suite has enough experience triaging survivors.
+examine_globs = [
+    "prns-core/src/wire/address.rs",
+    "prns-core/src/wire/context.rs",
+    "prns-core/src/wire/flags.rs",
+    "prns-core/src/wire/header.rs",
+    "prns-core/src/wire/limits.rs",
+    "prns-core/src/interfaces/policy/capabilities.rs",
+    "prns-core/src/interfaces/packet/ifac.rs",
+    "prns-core/src/interfaces/framing/rns_serial_framing.rs",
+    "prns-interfaces/impls/tokio/src/shared_instance/rns_rpc/server.rs",
+    "prns-core/src/interfaces/shared_instance/rns_rpc/dialects.rs",
+    "prns-core/src/interfaces/shared_instance/rns_rpc/request.rs",
+    "prns-runtime/impls/tokio/src/runtime/interface_store.rs",
+    "prns-core/src/engine/node_egress/announce_reemission.rs",
+    "prns-core/src/engine/node_egress/announce_selection.rs",
+    "prns-core/src/engine/node_egress/fanout.rs",
+    "prns-core/src/engine/node_egress/mod.rs",
+    "prns-core/src/engine/node_ingress/announce_completion.rs",
+    "prns-core/src/engine/node_ingress/deferred_decryption.rs",
+    "prns-core/src/engine/node_ingress/delivery.rs",
+    "prns-core/src/engine/node_ingress/held_announce_release.rs",
+    "prns-core/src/engine/node_ingress/link_handshake_completion.rs",
+    "prns-core/src/engine/node_ingress/packet_dispatch.rs",
+    "prns-core/src/engine/node_ingress/relay.rs",
+    "prns-core/src/engine/deadlines/mod.rs",
+    "prns-core/src/engine/command_execution.rs",
+    "prns-core/src/engine/reaction.rs",
+    "prns-core/src/routing/announce/defaults.rs",
+    "prns-core/src/routing/announce/acceptance.rs",
+    "prns-core/src/routing/announce/id.rs",
+    "prns-core/src/routing/announce/held/impls/fixed.rs",
+    "prns-core/src/routing/announce/held/impls/heap.rs",
+    "prns-core/src/routing/announce/schedule/impls/fixed.rs",
+    "prns-core/src/routing/announce/schedule/impls/heap.rs",
+    "prns-core/src/routing/links/handshake.rs",
+    "prns-core/src/routing/links/maintenance.rs",
+    "prns-core/src/routing/links/request.rs",
+    "prns-core/src/routing/links/resources/control.rs",
+    "prns-core/src/routing/delivery/receipts/mod.rs",
+    "prns-core/src/crypto/sign.rs",
+]
+
+# These bit-pack fields occupy disjoint positions; replacing OR with XOR in `WirePacketHeader::write` is equivalent for all constructible headers. The link signalling pack and unpack are the same shape: the MTU mask owns bits 0-20, the mode owns bits 21-23, and the three decode shifts never overlap.
+#
+# `no_interfaces` is already the canonical empty `Vec<InterfaceVitals>` source; replacing its body with `vec![]` is byte-for-byte the same observable behavior.
+#
+# Msgpack fixstr uses the high three opcode bits and a five-bit length; for every constructible fixstr length, `0xa0 | len` and `0xa0 ^ len` are equivalent. Msgpack fixarray/fixmap are the same shape: high opcode bits plus a four-bit element count, with no overlapping bits for constructible fixed sequences.
+#
+# Abstract AF_UNIX sockets are Linux-only code. The unit proof is Linux-gated, but macOS mutation workers still enumerate the cfg-disabled body, so those mutants are unobservable on this host.
+exclude_re = [
+    'replace \| with \^ in WirePacketHeader::write',
+    'replace \| with \^ in signalling_bytes_from',
+    'replace \| with \^ in decode_signalling_bytes',
+    'replace no_interfaces -> Vec<InterfaceVitals> with vec!\[\]',
+    'replace SharedInstanceRpcCompat<Q>::abstract_unix -> Self with Default::default\(\)',
+    'replace bind_abstract_rpc -> Option<UnixListener> with None',
+    'replace bind_abstract_rpc -> Option<UnixListener> with Some\(Default::default\(\)\)',
+    'replace \| with \^ in encode_str',
+    'replace \| with \^ in encode_seq_len',
+]
+
+# The lane includes local shared-instance RPC files, so the test invocation must compile the same host feature surface the runtime/oracle uses.
+additional_cargo_test_args = [
+    "-p",
+    "personal-rns",
+    "-p",
+    "prns-core",
+    "--features",
+    "tokio-host shared-instance tcp runtime-metrics",
+]

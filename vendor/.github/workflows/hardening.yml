@@ -1,0 +1,103 @@
+name: hardening
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 8 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings --cfg aes_armv8"
+
+jobs:
+  sanitizers:
+    name: ${{ matrix.sanitizer }} sanitizer
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        sanitizer: [address, leak, thread]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install Linux native development packages
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - id: toolchain
+        run: echo "nightly=$(python3 validation/run.py toolchain nightly)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: ${{ steps.toolchain.outputs.nightly }}
+          components: rust-src, llvm-tools-preview
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: hardening-${{ matrix.sanitizer }}
+      - run: python3 validation/run.py run --suite sanitizer-${{ matrix.sanitizer }} --expected-sha "$GITHUB_SHA"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hardening-sanitizer-${{ matrix.sanitizer }}-${{ github.run_id }}
+          path: validation-artifacts/results/sanitizer-${{ matrix.sanitizer }}/**
+          retention-days: 7
+
+  miri:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - id: toolchain
+        run: echo "nightly=$(python3 validation/run.py toolchain nightly)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: ${{ steps.toolchain.outputs.nightly }}
+          components: miri, rust-src
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: hardening-miri
+      - run: python3 validation/run.py run --suite miri-quick --expected-sha "$GITHUB_SHA"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hardening-miri-${{ github.run_id }}
+          path: validation-artifacts/results/miri-quick/**
+          retention-days: 7
+
+  unsafe-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: hardening-geiger
+      - run: cargo install cargo-geiger --version 0.13.0 --locked
+      - name: compiler boundary evidence
+        run: |
+          mkdir -p hardening-logs
+          python3 validation/run.py run --suite unsafe-entrypoints --expected-sha "$GITHUB_SHA" 2>&1 | tee hardening-logs/geiger-entrypoints.log
+      - name: supplemental dependency inventory
+        id: geiger_inventory
+        run: bash validation/hardening/geiger.sh --inventory > hardening-logs/geiger-inventory.log 2>&1
+        continue-on-error: true
+      - name: report incomplete Geiger parsing
+        if: steps.geiger_inventory.outcome == 'failure'
+        run: echo '::warning::cargo-geiger dependency inventory was incomplete; inspect the uploaded parser log. This is not a green security gate.'
+      - name: upload Geiger evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cargo-geiger-evidence
+          retention-days: 7
+          path: |
+            hardening-logs/*.log
+            validation-artifacts/results/unsafe-entrypoints/**

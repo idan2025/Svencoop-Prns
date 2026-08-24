@@ -1,0 +1,99 @@
+# cargo-deny — turns three of our promises into CI-enforced guarantees instead of
+# review-time discipline:
+#   1. the permissive-by-default license claim — GPL/AGPL/LGPL fail, and the one required
+#      file-level MPL transport stays scoped to an exact package exception;
+#   2. no known-vulnerable dependencies (RUSTSEC advisory DB);
+#   3. no surprise dependency sources or yanked crates.
+#
+# Install: `cargo install cargo-deny`.  Run: `cargo deny check`.
+
+# `validation/security/deps-audit.sh` supplies each shipped manifest and target explicitly. Keeping feature
+# selection at the release entrypoint avoids impossible all-features unions while still checking
+# every feature enabled by the daemon, apps, firmware board packages, and WASM package.
+
+[licenses]
+version = 2
+# The allowlist *is* the policy: anything not listed (notably GPL/AGPL/LGPL and other
+# copyleft) is denied. If one dependency genuinely needs a license outside this set,
+# add a narrowly-scoped entry to `exceptions` below — never widen `allow` for one crate.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "0BSD",
+    "bzip2-1.0.6",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.93
+# Licenses outside the general permissive set stay scoped to the exact reviewed package.
+exceptions = [
+    { allow = ["Unlicense"], crate = "ksni@0.3.6" },
+    { allow = ["LicenseRef-Nordic-SoftDevice"], crate = "nrf-softdevice-s140-v6@0.1.2-prns.1" },
+    { allow = ["LicenseRef-Nordic-SoftDevice"], crate = "nrf-softdevice-s140-v7@0.1.2-prns.1" },
+    # espflash 4.5.0's library serial engine requires serialport. Keep its file-level MPL
+    # obligations quarantined to this exact transport crate instead of widening the policy.
+    { allow = ["MPL-2.0"], crate = "serialport@4.9.0" },
+]
+
+# `unescaper` declares the malformed/deprecated SPDX expression "GPL-3.0/MIT". It is
+# genuinely dual-licensed and we take the MIT option, so pin the evaluated license to
+# MIT. This silences the SPDX parse-warning WITHOUT accepting any copyleft.
+[[licenses.clarify]]
+crate = "unescaper"
+expression = "MIT"
+license-files = []
+
+# Nordic distributes the S140 SoftDevice bindings under its hardware-restricted SDK
+# license. Keep the release exception bound to the exact upstream text; a license change
+# invalidates this clarification and fails the audit. The vendored split into v6/v7
+# bindings carries the same LICENSE-NORDIC text in both crates.
+[[licenses.clarify]]
+crate = "nrf-softdevice-s140-v6@0.1.2-prns.1"
+expression = "LicenseRef-Nordic-SoftDevice"
+license-files = [
+    { path = "LICENSE-NORDIC", hash = 0xe7401bed },
+]
+
+[[licenses.clarify]]
+crate = "nrf-softdevice-s140-v7@0.1.2-prns.1"
+expression = "LicenseRef-Nordic-SoftDevice"
+license-files = [
+    { path = "LICENSE-NORDIC", hash = 0xe7401bed },
+]
+
+[advisories]
+version = 2
+# Fail on any dependency that has been yanked; `ignore` is for advisories we've
+# triaged and consciously accept (each entry should carry a comment + RUSTSEC id).
+yanked = "deny"
+# Unmaintained advisories fail the build only when the crate is a DIRECT workspace
+# dependency (actionable by us). Deep-transitive unmaintained crates in platform and
+# embedded stacks are not directly actionable here, so this is scoped to "workspace".
+# Real security VULNERABILITIES are always denied,
+# regardless of this setting.
+unmaintained = "workspace"
+ignore = []
+
+[bans]
+# Duplicate versions bloat embedded binaries — surface them (warn), don't block yet.
+multiple-versions = "warn"
+wildcards = "deny"           # no `foo = "*"` version requirements from crates.io...
+allow-wildcard-paths = true # ...but intra-workspace `path = "..."` deps are fine
+allow = []
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+    "https://github.com/embassy-rs/bt-hci",
+    "https://github.com/embassy-rs/nrf-softdevice",
+]

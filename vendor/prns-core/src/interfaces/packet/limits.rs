@@ -1,0 +1,16 @@
+use super::ifac::IFAC_MAX_SIZE;
+use crate::interfaces::InterfaceDescriptor;
+
+pub const MAX_WIRE_FRAME_LEN: usize = crate::routing::links::MAX_LINK_MTU + IFAC_MAX_SIZE;
+
+pub const EMBEDDED_MAX_LINK_MTU: usize = 1_472;
+pub const EMBEDDED_MAX_WIRE_FRAME_LEN: usize = EMBEDDED_MAX_LINK_MTU + IFAC_MAX_SIZE;
+
+pub const BROADCAST_WIRE_FRAME_LEN: usize = crate::wire::BROADCAST_MTU + IFAC_MAX_SIZE;
+
+pub fn frame_cap_for(descriptor: &InterfaceDescriptor) -> usize {
+    descriptor
+        .hardware_mtu
+        .unwrap_or(crate::wire::BROADCAST_MTU)
+        + IFAC_MAX_SIZE
+}

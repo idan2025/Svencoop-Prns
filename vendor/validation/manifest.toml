@@ -1,0 +1,1454 @@
+schema = 1
+
+[tools]
+cargo_fuzz = "0.13.1"
+cargo_mutants = "27.1.0"
+kani = "0.67.0"
+
+[toolchains]
+nightly = "nightly-2025-11-21"
+
+[interpreters.smoke]
+environment = "SMOKE_PYTHON"
+venv = "validation/.venv/rns-1.4.2"
+requirements = "validation/oracles/requirements.txt"
+version = "1.4.2"
+
+[interpreters.rpc]
+environment = "RPC_SMOKE_PYTHON"
+venv = "validation/.venv/rns-rpc-1.4.2"
+requirements = "validation/oracles/requirements.txt"
+version = "1.4.2"
+
+[registry]
+cargo_lock_workspaces = [
+    ".",
+    "benchmarks",
+    "docs/website",
+    "personal-hopspot/desktop",
+    "personal-hopspot/embedded/esp32",
+    "personal-hopspot/embedded/nrf52840",
+    "personal-hopspot/mobile/android/rust",
+    "personal-hopspot/mobile/ios/rust",
+    "prns-config",
+    "prns-ffi",
+    "prns-host/abi/c",
+    "prns-host/impls/cooperative",
+    "prns-host/impls/native",
+    "prns-host/impls/tokio",
+    "prns-interfaces/impls/embassy",
+    "prns-interfaces/impls/tokio",
+    "prns-napi",
+    "prns-runtime/impls/embassy",
+    "prns-runtime/impls/tokio",
+    "prns-wasm",
+    "prnsd",
+    "validation/fuzz",
+    "validation/integration",
+    "validation/oracles",
+]
+cargo_manifests = [
+    "Cargo.toml",
+    "benchmarks/Cargo.toml",
+    "docs/command/Cargo.toml",
+    "docs/website/Cargo.toml",
+    "personal-hopspot/core/Cargo.toml",
+    "personal-hopspot/desktop/Cargo.toml",
+    "personal-hopspot/embedded/esp32/Cargo.toml",
+    "personal-hopspot/embedded/esp32/boards/heltec-v4/Cargo.toml",
+    "personal-hopspot/embedded/esp32/boards/heltec-v4-r8/Cargo.toml",
+    "personal-hopspot/embedded/esp32/boards/t-beam-supreme/Cargo.toml",
+    "personal-hopspot/embedded/esp32/boards/xiao-esp32-c6/Cargo.toml",
+    "personal-hopspot/embedded/esp32/vendor/esp-alloc-0.10.0/Cargo.toml",
+    "personal-hopspot/embedded/esp32/vendor/esp-backtrace-0.19.0/Cargo.toml",
+    "personal-hopspot/embedded/esp32/vendor/esp-phy-0.2.0/Cargo.toml",
+    "personal-hopspot/embedded/esp32/vendor/esp-radio-0.18.0/Cargo.toml",
+    "personal-hopspot/embedded/esp32/vendor/esp-radio-rtos-driver-0.3.0/Cargo.toml",
+    "personal-hopspot/embedded/esp32/vendor/esp-rtos-0.3.0/Cargo.toml",
+    "personal-hopspot/embedded/esp32/vendor/trouble-host-0.6.0/Cargo.toml",
+    "personal-hopspot/embedded/esp32/vendor/xtensa-lx-rt-0.22.0/Cargo.toml",
+    "personal-hopspot/embedded/nrf52840/Cargo.toml",
+    "personal-hopspot/embedded/nrf52840/vendor/nrf-softdevice/nrf-softdevice/Cargo.toml",
+    "personal-hopspot/embedded/nrf52840/vendor/nrf-softdevice/nrf-softdevice-macro/Cargo.toml",
+    "personal-hopspot/embedded/nrf52840/vendor/nrf-softdevice/nrf-softdevice-s140-v6/Cargo.toml",
+    "personal-hopspot/embedded/nrf52840/vendor/nrf-softdevice/nrf-softdevice-s140-v7/Cargo.toml",
+    "personal-hopspot/flasher/Cargo.toml",
+    "personal-hopspot/mobile/android/rust/Cargo.toml",
+    "personal-hopspot/mobile/ios/rust/Cargo.toml",
+    "personal-hopspot/sdk/hopspot/Cargo.toml",
+    "personal-rns/Cargo.toml",
+    "prns-config/Cargo.toml",
+    "prns-core/Cargo.toml",
+    "prns-ffi/Cargo.toml",
+    "prns-flash-manifest/Cargo.toml",
+    "prns-host/abi/c/Cargo.toml",
+    "prns-host/core/Cargo.toml",
+    "prns-host/impls/cooperative/Cargo.toml",
+    "prns-host/impls/native/Cargo.toml",
+    "prns-host/impls/tokio/Cargo.toml",
+    "prns-interfaces/impls/embassy/Cargo.toml",
+    "prns-interfaces/impls/tokio/Cargo.toml",
+    "prns-macros/Cargo.toml",
+    "prns-napi/Cargo.toml",
+    "prns-nrf-dfu/Cargo.toml",
+    "prns-nrf-dfu-wasm/Cargo.toml",
+    "prns-runtime/core/Cargo.toml",
+    "prns-runtime/impls/embassy/Cargo.toml",
+    "prns-runtime/impls/tokio/Cargo.toml",
+    "prns-wasm/Cargo.toml",
+    "prnsd/Cargo.toml",
+    "prnsd/command/Cargo.toml",
+    "prnsd/control/Cargo.toml",
+    "prnsd/observability/runner/Cargo.toml",
+    "tools/repo/cargo-tools-command/Cargo.toml",
+    "validation/fuzz/Cargo.toml",
+    "validation/integration/Cargo.toml",
+    "validation/oracles/Cargo.toml",
+]
+format_manifests = [
+    "Cargo.toml",
+    "benchmarks/Cargo.toml",
+    "docs/website/Cargo.toml",
+    "personal-hopspot/desktop/Cargo.toml",
+    "personal-hopspot/embedded/esp32/Cargo.toml",
+    "personal-hopspot/embedded/nrf52840/Cargo.toml",
+    "personal-hopspot/mobile/android/rust/Cargo.toml",
+    "personal-hopspot/mobile/ios/rust/Cargo.toml",
+    "prns-config/Cargo.toml",
+    "prns-ffi/Cargo.toml",
+    "prns-host/abi/c/Cargo.toml",
+    "prns-host/impls/native/Cargo.toml",
+    "prns-interfaces/impls/embassy/Cargo.toml",
+    "prns-interfaces/impls/tokio/Cargo.toml",
+    "prns-napi/Cargo.toml",
+    "prns-runtime/impls/embassy/Cargo.toml",
+    "prns-runtime/impls/tokio/Cargo.toml",
+    "prns-wasm/Cargo.toml",
+    "prnsd/Cargo.toml",
+    "validation/fuzz/Cargo.toml",
+    "validation/integration/Cargo.toml",
+    "validation/oracles/Cargo.toml",
+]
+
+[registry.format_package_overrides]
+"personal-hopspot/embedded/nrf52840/Cargo.toml" = ["t-echo"]
+
+[[registry.asset_exemptions]]
+path = "prns-wasm/smoke/smoke.ts"
+reason = "Interactive browser-and-device smoke page; the automatable TypeScript smokes are registered suites."
+
+[[suite]]
+id = "cargo-locks"
+domain = "hygiene"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "python"
+timeout_seconds = 600
+command = ["__RUNNER_PYTHON__", "validation/hygiene/cargo-locks.py"]
+inputs = ["validation/hygiene/cargo-locks.py", "validation/manifest.toml"]
+artifacts = "validation-artifacts/results/cargo-locks"
+
+[[suite]]
+id = "host-contract-generated"
+domain = "hygiene"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "python"
+timeout_seconds = 60
+command = ["__RUNNER_PYTHON__", "tools/prns", "run", "repo.host-contract.check"]
+inputs = [
+  "tools/repo/generate-host-contract.py",
+  "prns-host/schema/host-contract-v1.json",
+  "prns-host/core/src/generated.rs",
+  "prns-host/abi/c/include/prns_host.h",
+  "prns-host/bindings/dotnet/src/PersonalRns/Generated/HostContract.g.cs",
+  "prns-host/bindings/go/convenience.go",
+  "prns-host/bindings/go/contract_generated.go",
+  "prns-host/bindings/julia/src/HostContract.generated.jl",
+  "prns-host/bindings/julia/src/PersonalRns.jl",
+  "prns-host/bindings/julia/src/command.jl",
+  "prns-host/bindings/jvm/src/main/kotlin/rs/reticulum/prns/Command.kt",
+  "prns-host/bindings/jvm/src/main/kotlin/rs/reticulum/prns/Events.kt",
+  "prns-host/bindings/jvm/src/main/kotlin/rs/reticulum/prns/HostContract.generated.kt",
+  "prns-host/bindings/jvm/src/main/kotlin/rs/reticulum/prns/Host.kt",
+  "prns-host/bindings/jvm/src/main/kotlin/rs/reticulum/prns/ResourceUpload.kt",
+  "prns-host/bindings/python/src/personal_rns/generated.py",
+  "prns-host/bindings/swift/Sources/CPrnsHost/include/prns_host.h",
+  "prns-host/bindings/swift/Sources/PersonalRns/HostContract.generated.swift",
+  "prns-host/bindings/swift/Sources/PersonalRns/Host.swift",
+  "prns-host/conformance/host-contract-v1.json",
+  "prns-js/src/contract.generated.ts",
+]
+artifacts = "validation-artifacts/results/host-contract-generated"
+
+[[suite]]
+id = "host-c-contract"
+domain = "interop"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/host-c-contract-smoke.sh"]
+inputs = [
+  "validation/interop/cases/host-c-contract-smoke.sh",
+  "prns-host/abi/c",
+  "prns-host/conformance/interface-configs-v1.json",
+  "prns-host/conformance/persistent-two-node-v1.json",
+  "prns-host/core",
+  "prns-host/schema/host-contract-v1.json",
+]
+artifacts = "validation-artifacts/results/host-c-contract"
+
+[[suite]]
+id = "host-dotnet-contract"
+domain = "interop"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "dotnet"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/host-dotnet-contract-smoke.sh"]
+inputs = [
+  "validation/interop/cases/host-dotnet-contract-smoke.sh",
+  "prns-host/abi/c",
+  "prns-host/bindings/dotnet",
+  "prns-host/conformance/interface-configs-v1.json",
+  "prns-host/conformance/persistent-two-node-v1.json",
+  "prns-host/core",
+  "prns-host/schema/host-contract-v1.json",
+]
+artifacts = "validation-artifacts/results/host-dotnet-contract"
+
+[[suite]]
+id = "host-sdk-distribution"
+domain = "hygiene"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "python"
+timeout_seconds = 60
+command = ["__RUNNER_PYTHON__", "tools/prns", "run", "release.host-sdk.distribution.check"]
+inputs = [
+  "VERSION",
+  "prns-host/distribution/RUST_PACKAGE.md",
+  "prns-host/distribution",
+  "tools/release/check-host-sdk-distribution.py",
+  "personal-hopspot/sdk/hopspot",
+  "personal-rns/Cargo.toml",
+  "prns-js/package.json",
+  "prns-config/Cargo.toml",
+  "prns-core/Cargo.toml",
+  "prns-ffi/Cargo.toml",
+  "prns-interfaces/impls/embassy/Cargo.toml",
+  "prns-interfaces/impls/tokio/Cargo.toml",
+  "prns-runtime/core/Cargo.toml",
+  "prns-runtime/impls/embassy/Cargo.toml",
+  "prns-runtime/impls/tokio/Cargo.toml",
+]
+artifacts = "validation-artifacts/results/host-sdk-distribution"
+
+[[suite]]
+id = "host-python-contract"
+domain = "interop"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "python"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/host-python-contract-smoke.sh"]
+inputs = [
+  "validation/interop/cases/host-python-contract-smoke.sh",
+  "prns-host/abi/c",
+  "prns-host/bindings/python",
+  "prns-host/conformance/interface-configs-v1.json",
+  "prns-host/conformance/persistent-two-node-v1.json",
+  "prns-host/core",
+  "prns-host/schema/host-contract-v1.json",
+]
+artifacts = "validation-artifacts/results/host-python-contract"
+
+[[suite]]
+id = "host-go-contract"
+domain = "interop"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "go"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/host-go-contract-smoke.sh"]
+inputs = [
+  "validation/interop/cases/host-go-contract-smoke.sh",
+  "prns-host/abi/c",
+  "prns-host/bindings/go",
+  "prns-host/conformance/interface-configs-v1.json",
+  "prns-host/conformance/persistent-two-node-v1.json",
+  "prns-host/core",
+  "prns-host/schema/host-contract-v1.json",
+]
+artifacts = "validation-artifacts/results/host-go-contract"
+
+[[suite]]
+id = "host-swift-contract"
+domain = "interop"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "swift"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/host-swift-contract-smoke.sh"]
+inputs = [
+  "validation/interop/cases/host-swift-contract-smoke.sh",
+  "prns-host/abi/c",
+  "prns-host/bindings/swift",
+  "prns-host/conformance/interface-configs-v1.json",
+  "prns-host/conformance/persistent-two-node-v1.json",
+  "prns-host/core",
+  "prns-host/schema/host-contract-v1.json",
+]
+artifacts = "validation-artifacts/results/host-swift-contract"
+
+[[suite]]
+id = "host-julia-contract"
+domain = "interop"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "julia"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/host-julia-contract-smoke.sh"]
+inputs = [
+  "validation/interop/cases/host-julia-contract-smoke.sh",
+  "prns-host/abi/c",
+  "prns-host/bindings/julia",
+  "prns-host/conformance/interface-configs-v1.json",
+  "prns-host/conformance/persistent-two-node-v1.json",
+  "prns-host/core",
+  "prns-host/schema/host-contract-v1.json",
+]
+artifacts = "validation-artifacts/results/host-julia-contract"
+
+[[suite]]
+id = "host-jvm-contract"
+domain = "interop"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "jvm"
+timeout_seconds = 900
+command = ["bash", "validation/interop/cases/host-jvm-contract-smoke.sh"]
+inputs = [
+  "validation/interop/cases/host-jvm-contract-smoke.sh",
+  "prns-host/abi/c",
+  "prns-host/bindings/jvm",
+  "prns-host/conformance/interface-configs-v1.json",
+  "prns-host/conformance/persistent-two-node-v1.json",
+  "prns-host/core",
+  "prns-host/schema/host-contract-v1.json",
+]
+artifacts = "validation-artifacts/results/host-jvm-contract"
+
+[[suite]]
+id = "registry"
+domain = "hygiene"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+timeout_seconds = 60
+command = ["__RUNNER_PYTHON__", "validation/run.py", "verify"]
+inputs = ["validation/manifest.toml", "validation/run.py", "validation/evidence-schema.json", "validation/BASELINE.md", "validation/mutation/triage.toml", "validation/oracles/requirements.lock", "validation/oracles/requirements.txt", "validation/oracles/tests/support/mod.rs"]
+artifacts = "validation-artifacts/results/registry"
+
+[[suite]]
+id = "validation-self-tests"
+domain = "hygiene"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "python"
+timeout_seconds = 300
+command = ["__RUNNER_PYTHON__", "-m", "unittest", "discover", "-s", "validation/tests", "-p", "test_*.py", "-v"]
+inputs = ["validation/run.py", "validation/tests/test_runner.py"]
+artifacts = "validation-artifacts/results/validation-self-tests"
+
+[[suite]]
+id = "tool-registry"
+domain = "hygiene"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "python"
+timeout_seconds = 120
+command = ["__RUNNER_PYTHON__", "tools/prns", "verify"]
+inputs = ["tools/prns", "tools/tasks.toml", "tools/README.md", ".githooks/pre-push"]
+artifacts = "validation-artifacts/results/tool-registry"
+
+[[suite]]
+id = "format-docs"
+domain = "hygiene"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 1200
+command = ["bash", "validation/hygiene/fmt-docs.sh"]
+inputs = ["validation/hygiene/fmt-docs.sh", "validation/manifest.toml"]
+artifacts = "validation-artifacts/results/format-docs"
+
+[[suite]]
+id = "personal-path-hygiene"
+domain = "hygiene"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "python"
+timeout_seconds = 300
+command = ["__RUNNER_PYTHON__", "validation/hygiene/no-personal-paths.py"]
+inputs = ["validation/hygiene/no-personal-paths.py", ".githooks/pre-push"]
+artifacts = "validation-artifacts/results/personal-path-hygiene"
+
+[[suite]]
+id = "runtime-ownership"
+domain = "hygiene"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "python"
+timeout_seconds = 600
+command = ["__RUNNER_PYTHON__", "-m", "unittest", "tools.tests.test_runtime_ownership"]
+inputs = [
+  "tools/tests/test_runtime_ownership.py",
+  "prns-napi/Cargo.toml",
+  "prns-wasm/Cargo.toml",
+  "prns-host/abi/c/Cargo.toml",
+  "prns-host/impls/native/Cargo.toml",
+  "prns-host/impls/cooperative/Cargo.toml",
+  "prns-host/bindings",
+]
+artifacts = "validation-artifacts/results/runtime-ownership"
+
+[[suite]]
+id = "dependency-audit"
+domain = "security"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 3600
+command = ["bash", "validation/security/deps-audit.sh"]
+inputs = ["validation/security/deps-audit.sh", "deny.toml", "about.toml"]
+artifacts = "validation-artifacts/results/dependency-audit"
+
+[[suite]]
+id = "coverage-report"
+domain = "diagnostics"
+group = "coverage"
+tiers = ["scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 3600
+command = ["bash", "validation/hardening/coverage.sh"]
+inputs = ["validation/hardening/coverage.sh"]
+artifacts = "validation-artifacts/results/coverage-report"
+
+[[suite]]
+id = "unsafe-entrypoints"
+domain = "security"
+group = "unsafe"
+tiers = ["scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 3600
+command = ["bash", "validation/hardening/geiger.sh", "--entrypoints"]
+inputs = ["validation/hardening/geiger.sh"]
+artifacts = "validation-artifacts/results/unsafe-entrypoints"
+
+[[suite]]
+id = "root-tests"
+domain = "native"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+timeout_seconds = 1200
+command = ["cargo", "test", "--workspace", "--locked"]
+inputs = ["Cargo.toml", "Cargo.lock"]
+artifacts = "validation-artifacts/results/root-tests"
+
+[[suite]]
+id = "root-clippy"
+domain = "native"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+timeout_seconds = 1200
+command = ["cargo", "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"]
+inputs = ["Cargo.toml", "Cargo.lock"]
+artifacts = "validation-artifacts/results/root-clippy"
+
+[[suite]]
+id = "guide-rust"
+domain = "integration"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+timeout_seconds = 120
+command = ["cargo", "tools", "guide", "rust-basics"]
+inputs = ["Cargo.toml", "Cargo.lock", ".cargo/config.toml", "personal-rns/Cargo.toml", "personal-rns/examples/node_basics.rs", "tools/guide/run-rust-example.py", "tools/prns", "tools/tasks.toml"]
+artifacts = "validation-artifacts/results/guide-rust"
+
+[[suite]]
+id = "alloc-only"
+domain = "native"
+group = "feature-config"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 1200
+command = ["bash", "validation/native/alloc-only.sh"]
+inputs = ["validation/native/alloc-only.sh", "Cargo.toml", "Cargo.lock", "prns-core/Cargo.toml", "prns-core/src"]
+artifacts = "validation-artifacts/results/alloc-only"
+
+[[suite]]
+id = "external-alloc"
+domain = "native"
+group = "feature-config"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 1200
+command = ["bash", "validation/native/external-alloc.sh"]
+inputs = ["validation/native/external-alloc.sh", "Cargo.toml", "Cargo.lock", "prns-core/Cargo.toml", "prns-core/src"]
+artifacts = "validation-artifacts/results/external-alloc"
+
+[[suite]]
+id = "integration-capstones"
+domain = "integration"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+timeout_seconds = 1200
+command = ["cargo", "test", "--manifest-path", "validation/integration/Cargo.toml", "--locked", "--", "--test-threads=1"]
+inputs = ["validation/integration/Cargo.toml", "validation/integration/tests"]
+artifacts = "validation-artifacts/results/integration-capstones"
+
+[[suite]]
+id = "release-contracts"
+domain = "release"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "python"
+timeout_seconds = 600
+command = ["bash", "validation/release/contracts.sh"]
+inputs = ["tools/tests", "tools/release", "prnsd/Cargo.toml", "validation/release/contracts.sh", "validation/release/prnsd-feature-contracts.py", "validation/release/workflow-contracts.py", "validation/release/acceptance-doc-contracts.py", "release/acceptance/README.md", "release/acceptance/QUALIFICATION.md", "release/acceptance/rosters/README.md", "release/flash/README.md", "release/flash/boards.json", "docs/release-dependency-audit.md"]
+artifacts = "validation-artifacts/results/release-contracts"
+
+[[suite]]
+id = "fuzz-build"
+domain = "fuzz"
+group = "build"
+tiers = ["release", "scheduled"]
+platform = "any"
+toolchain = "nightly"
+timeout_seconds = 1200
+command = ["cargo", "+__NIGHTLY_TOOLCHAIN__", "fuzz", "check", "--fuzz-dir", "."]
+working_directory = "validation/fuzz"
+inputs = ["validation/fuzz/Cargo.toml", "validation/fuzz/fuzz_targets"]
+artifacts = "validation-artifacts/results/fuzz-build"
+
+[[suite]]
+id = "mutation-analysis"
+domain = "mutation"
+tiers = ["scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 14400
+shards = 4
+command = ["bash", "validation/mutation/run.sh"]
+inputs = ["validation/mutation/run.sh", "validation/mutation/config.toml", "validation/mutation/triage.toml"]
+artifacts = "validation-artifacts/results/mutation-analysis"
+
+[[suite]]
+id = "miri-quick"
+domain = "hardening"
+group = "miri"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "nightly"
+timeout_seconds = 3600
+command = ["bash", "validation/hardening/miri.sh", "--quick"]
+inputs = ["validation/hardening/miri.sh"]
+artifacts = "validation-artifacts/results/miri-quick"
+
+[[suite]]
+id = "sanitizer-address"
+domain = "hardening"
+group = "sanitizer"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "nightly"
+timeout_seconds = 3600
+command = ["bash", "validation/hardening/sanitizers.sh", "address"]
+inputs = ["validation/hardening/sanitizers.sh", "validation/hardening/tsan-suppressions.txt"]
+artifacts = "validation-artifacts/results/sanitizer-address"
+
+[[suite]]
+id = "sanitizer-leak"
+domain = "hardening"
+group = "sanitizer"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "nightly"
+timeout_seconds = 3600
+command = ["bash", "validation/hardening/sanitizers.sh", "leak"]
+inputs = ["validation/hardening/sanitizers.sh", "validation/hardening/tsan-suppressions.txt"]
+artifacts = "validation-artifacts/results/sanitizer-leak"
+
+[[suite]]
+id = "sanitizer-thread"
+domain = "hardening"
+group = "sanitizer"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "nightly"
+timeout_seconds = 3600
+command = ["bash", "validation/hardening/sanitizers.sh", "thread"]
+inputs = ["validation/hardening/sanitizers.sh", "validation/hardening/tsan-suppressions.txt"]
+artifacts = "validation-artifacts/results/sanitizer-thread"
+
+[[suite]]
+id = "android-service"
+domain = "platform"
+group = "android"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 2400
+command = ["bash", "validation/platforms/android-service-smoke.sh"]
+inputs = [
+    "validation/platforms/android-service-smoke.sh",
+    "validation/platforms/android-production-hardware.md",
+    "personal-hopspot/core/src/mobile.rs",
+    "personal-hopspot/mobile/android/app",
+    "personal-hopspot/mobile/android/rust",
+    "prns-ffi/src/wifi_direct/android.rs",
+    "prns-interfaces/impls/tokio/src/wifi_direct/runtime.rs",
+]
+artifacts = "validation-artifacts/results/android-service"
+
+[[suite]]
+id = "host-workspaces"
+domain = "platform"
+group = "linux-host"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 3600
+command = ["bash", "validation/platforms/host-workspaces.sh"]
+inputs = ["validation/platforms/host-workspaces.sh"]
+artifacts = "validation-artifacts/results/host-workspaces"
+
+[[suite]]
+id = "embedded-builds"
+domain = "platform"
+group = "embedded"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 3600
+command = ["bash", "validation/platforms/embedded.sh"]
+inputs = ["validation/platforms/embedded.sh", "validation/platforms/no-std-esp-build.sh"]
+artifacts = "validation-artifacts/results/embedded-builds"
+
+[[suite]]
+id = "shipping-firmware"
+domain = "platform"
+group = "esp"
+tiers = ["release"]
+platform = "linux"
+toolchain = "esp"
+timeout_seconds = 7200
+command = ["bash", "validation/platforms/shipping-firmware.sh"]
+inputs = [
+  "validation/platforms/shipping-firmware.sh",
+  "tools/release/build-flash-artifact.sh",
+  "tools/release/install-release-esp-toolchain.sh",
+  "tools/release/release-esp-toolchain-identity.sh",
+  "tools/release/verify-release-esp-toolchain.sh",
+]
+artifacts = "validation-artifacts/results/shipping-firmware"
+
+[[suite]]
+id = "apple-platforms"
+domain = "platform"
+group = "apple"
+tiers = ["pr", "release", "scheduled"]
+platform = "macos"
+toolchain = "stable"
+timeout_seconds = 3600
+command = ["bash", "validation/platforms/apple.sh"]
+inputs = ["validation/platforms/apple.sh"]
+artifacts = "validation-artifacts/results/apple-platforms"
+
+[[suite]]
+id = "ios-simulator"
+domain = "platform"
+group = "apple"
+tiers = ["pr", "release", "scheduled"]
+platform = "macos"
+toolchain = "stable"
+timeout_seconds = 3600
+command = ["bash", "validation/platforms/ios-simulator.sh"]
+inputs = ["validation/platforms/ios-simulator.sh", "personal-hopspot/mobile/ios/app/PersonalHopspot.xcodeproj/project.pbxproj", "personal-hopspot/mobile/ios/app/PersonalHopspot/Info.plist", "personal-hopspot/mobile/ios/app/PersonalHopspot/Assets.xcassets/AppIcon.appiconset/Contents.json", "personal-hopspot/mobile/ios/app/PersonalHopspot/Assets.xcassets/AppIcon.appiconset/AppIcon.png", "personal-hopspot/mobile/ios/rust/include/hopspot.h"]
+artifacts = "validation-artifacts/results/ios-simulator"
+
+[[suite]]
+id = "windows-desktop"
+domain = "platform"
+group = "windows"
+tiers = ["pr", "release", "scheduled"]
+platform = "windows"
+toolchain = "stable"
+timeout_seconds = 3600
+command = ["__RUNNER_PYTHON__", "validation/platforms/windows.py"]
+inputs = ["validation/platforms/windows.py"]
+artifacts = "validation-artifacts/results/windows-desktop"
+
+[[suite]]
+id = "flasher-web"
+domain = "platform"
+group = "web"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 3600
+command = ["bash", "validation/platforms/flasher-web.sh"]
+inputs = ["validation/platforms/flasher-web.sh", "docs/website", "prns-nrf-dfu", "prns-nrf-dfu-wasm", "tools/build/stage-web-flasher-nrf-dfu-wasm.sh", "tools/build/test-web-flasher-nrf-dfu-wasm.sh", "README.md", "CONTRIBUTING.md", "docs/getting-started.md", "docs/testing.md", "docs/prnsd-config.md", "docs/prnsd-utilities.md", "docs/validation.md", "docs/observability.md", "prnsd/README.md", "personal-rns/README.md", "benchmarks/README.md", "benchmarks/CONTRIBUTING.md", "benchmarks/PROFILING.md", "tools/README.md"]
+artifacts = "validation-artifacts/results/flasher-web"
+
+[[suite]]
+id = "android-runtime-device"
+domain = "platform"
+group = "android"
+tiers = ["scheduled"]
+platform = "android-device"
+toolchain = "stable"
+timeout_seconds = 2400
+command = ["bash", "validation/platforms/android-runtime-smoke.sh"]
+inputs = [
+    "validation/platforms/android-permission-recovery-smoke.sh",
+    "validation/platforms/android-routing-persistence-smoke.sh",
+    "validation/platforms/android-runtime-smoke.sh",
+    "validation/platforms/android-service-smoke.sh",
+    "validation/platforms/android-sticky-recreation-smoke.sh",
+    "validation/platforms/android-production-hardware.md",
+    "personal-hopspot/mobile/android/app/src/androidTest",
+]
+artifacts = "validation-artifacts/results/android-runtime-device"
+
+[[suite]]
+id = "wifi-direct-hwsim"
+domain = "platform"
+group = "linux-network"
+tiers = ["scheduled"]
+platform = "linux"
+toolchain = "stable"
+timeout_seconds = 1800
+command = ["bash", "validation/platforms/wifi-direct-hwsim-smoke.sh"]
+inputs = [
+    "validation/platforms/wifi-direct-experimental.md",
+    "validation/platforms/wifi-direct-hwsim-smoke.sh",
+    "prns-core/src/interfaces/wifi_direct",
+    "prns-interfaces/impls/tokio/src/wifi_direct",
+]
+artifacts = "validation-artifacts/results/wifi-direct-hwsim"
+
+[[suite]]
+id = "javascript-contract"
+domain = "platform"
+group = "wasm"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "node"
+timeout_seconds = 600
+command = ["npm", "--prefix", "prns-js", "test"]
+inputs = [
+  "prns-js/package.json",
+  "prns-js/package-lock.json",
+  "prns-js/src",
+  "prns-js/tests",
+]
+artifacts = "validation-artifacts/results/javascript-contract"
+
+[[suite]]
+id = "hopspot-javascript-package"
+domain = "platform"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "node"
+timeout_seconds = 120
+command = ["npm", "--prefix", "personal-hopspot/sdk/hopspot", "run", "check"]
+inputs = [
+  "personal-hopspot/sdk/hopspot/package.json",
+  "personal-hopspot/sdk/hopspot/index.js",
+  "personal-hopspot/sdk/hopspot/index.cjs",
+  "personal-hopspot/sdk/hopspot/index.d.ts",
+  "personal-hopspot/sdk/hopspot/native.js",
+  "personal-hopspot/sdk/hopspot/native.cjs",
+  "personal-hopspot/sdk/hopspot/native.d.ts",
+  "personal-hopspot/sdk/hopspot/browser.js",
+  "personal-hopspot/sdk/hopspot/browser.d.ts",
+  "personal-hopspot/sdk/hopspot/casework.js",
+  "personal-hopspot/sdk/hopspot/casework.cjs",
+  "personal-hopspot/sdk/hopspot/casework.d.ts",
+  "personal-hopspot/sdk/hopspot/test",
+]
+artifacts = "validation-artifacts/results/hopspot-javascript-package"
+
+[[suite]]
+id = "javascript-browser-package"
+domain = "platform"
+group = "wasm"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "node"
+timeout_seconds = 1200
+command = ["npm", "--prefix", "prns-js", "run", "test:browser:full"]
+inputs = [
+  "prns-js/package.json",
+  "prns-js/src",
+  "prns-js/tests/browser-auto-consumer.html",
+  "prns-js/tests/browser-smoke.mjs",
+  "prns-wasm/package.json",
+]
+artifacts = "validation-artifacts/results/javascript-browser-package"
+
+[[suite]]
+id = "wasm-casework"
+domain = "platform"
+group = "wasm"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "node"
+timeout_seconds = 600
+command = ["npm", "--prefix", "prns-wasm", "run", "check:casework"]
+inputs = ["prns-wasm/package.json", "prns-wasm/smoke/casework-smoke.ts"]
+artifacts = "validation-artifacts/results/wasm-casework"
+
+[[suite]]
+id = "wasm-events"
+domain = "platform"
+group = "wasm"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "node"
+timeout_seconds = 1200
+command = ["npm", "--prefix", "prns-wasm", "run", "check:events"]
+inputs = [
+  "prns-wasm/package.json",
+  "prns-wasm/tsconfig.json",
+  "prns-wasm/scripts/stage-event-smoke.mjs",
+  "prns-wasm/smoke/event-smoke.ts",
+  "prns-wasm/smoke/mock_runtime.ts",
+  "prns-wasm/examples/browser-playground/presentation.ts",
+]
+artifacts = "validation-artifacts/results/wasm-events"
+
+[[suite]]
+id = "wasm-auto-wifi"
+domain = "platform"
+group = "wasm"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "node"
+timeout_seconds = 600
+command = ["npm", "--prefix", "prns-wasm", "run", "check:auto-wifi"]
+inputs = [
+  "prns-wasm/package.json",
+  "prns-wasm/smoke/auto-wifi-smoke.ts",
+  "prns-wasm/smoke/mock_runtime.ts",
+]
+artifacts = "validation-artifacts/results/wasm-auto-wifi"
+
+[[suite]]
+id = "wasm-websocket"
+domain = "platform"
+group = "wasm"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "node"
+timeout_seconds = 600
+command = ["npm", "--prefix", "prns-wasm", "run", "check:websocket"]
+inputs = [
+  "prns-wasm/package.json",
+  "prns-wasm/smoke/mock_runtime.ts",
+  "prns-wasm/smoke/websocket-smoke.ts",
+]
+artifacts = "validation-artifacts/results/wasm-websocket"
+
+[[suite]]
+id = "oracle-config-configobj"
+domain = "oracles"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 300
+command = ["cargo", "test", "--manifest-path", "validation/oracles/Cargo.toml", "--test", "config_configobj", "--locked"]
+inputs = ["validation/oracles/tests/config_configobj.rs", "validation/oracles/python/configobj_oracle.py"]
+artifacts = "validation-artifacts/results/oracle-config-configobj"
+
+[[suite]]
+id = "oracle-config-coercion"
+domain = "oracles"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 300
+command = ["cargo", "test", "--manifest-path", "validation/oracles/Cargo.toml", "--test", "config_coercion", "--locked"]
+inputs = ["validation/oracles/tests/config_coercion.rs", "validation/oracles/python/coercion_oracle.py"]
+artifacts = "validation-artifacts/results/oracle-config-coercion"
+
+[[suite]]
+id = "oracle-config-rnode"
+domain = "oracles"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 300
+command = ["cargo", "test", "--manifest-path", "validation/oracles/Cargo.toml", "--test", "config_rnode_transport", "--locked"]
+inputs = ["validation/oracles/tests/config_rnode_transport.rs", "validation/oracles/python/rnode_transport_oracle.py"]
+artifacts = "validation-artifacts/results/oracle-config-rnode"
+
+[[suite]]
+id = "oracle-config-prns-skip"
+domain = "oracles"
+group = "deterministic"
+tiers = ["release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 300
+command = ["cargo", "test", "--manifest-path", "validation/oracles/Cargo.toml", "--test", "config_prns_interface_skip", "--locked"]
+inputs = ["validation/oracles/tests/config_prns_interface_skip.rs", "validation/oracles/python/prns_interface_skip_oracle.py"]
+artifacts = "validation-artifacts/results/oracle-config-prns-skip"
+
+[[suite]]
+id = "oracle-config-prns-section-skip"
+domain = "oracles"
+group = "deterministic"
+tiers = ["release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 300
+command = ["cargo", "test", "--manifest-path", "validation/oracles/Cargo.toml", "--test", "config_prns_section_skip", "--locked"]
+inputs = ["validation/oracles/tests/config_prns_section_skip.rs", "validation/oracles/python/prns_section_skip_oracle.py"]
+artifacts = "validation-artifacts/results/oracle-config-prns-section-skip"
+
+[[suite]]
+id = "oracle-wire"
+domain = "oracles"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 300
+command = ["cargo", "test", "--manifest-path", "validation/oracles/Cargo.toml", "--test", "wire_packet", "--locked"]
+inputs = ["validation/oracles/tests/wire_packet.rs", "validation/oracles/python/wire_oracle.py"]
+artifacts = "validation-artifacts/results/oracle-wire"
+
+[[suite]]
+id = "oracle-identity"
+domain = "oracles"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 300
+command = ["cargo", "test", "--manifest-path", "validation/oracles/Cargo.toml", "--test", "identity_crypto", "--locked"]
+inputs = ["validation/oracles/tests/identity_crypto.rs", "validation/oracles/python/identity_oracle.py"]
+artifacts = "validation-artifacts/results/oracle-identity"
+
+[[suite]]
+id = "oracle-rpc-codec"
+domain = "oracles"
+group = "deterministic"
+tiers = ["pr", "release", "scheduled"]
+platform = "any"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 300
+command = ["cargo", "test", "-p", "prns-core", "--features", "shared-instance-rpc", "--lib", "interfaces::shared_instance::rns_rpc::request::tests", "--locked"]
+inputs = ["prns-core/src/interfaces/shared_instance/rns_rpc/request.rs", "validation/oracles/python/rpc_oracle.py"]
+artifacts = "validation-artifacts/results/oracle-rpc-codec"
+
+[[suite]]
+id = "interop-local-instance"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 300
+command = ["bash", "validation/interop/cases/local-interop-smoke.sh"]
+inputs = ["validation/interop/cases/local-interop-smoke.sh", "validation/interop/peers/rns_shared_instance_client.py"]
+artifacts = "validation-artifacts/results/interop-local-instance"
+
+[[suite]]
+id = "interop-shared-rpc"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 300
+command = ["bash", "validation/interop/cases/local-rpc-interop-smoke.sh"]
+inputs = ["validation/interop/cases/local-rpc-interop-smoke.sh", "validation/interop/peers/rns_shared_rpc_client.py"]
+artifacts = "validation-artifacts/results/interop-shared-rpc"
+
+[[suite]]
+id = "interop-remote-management"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 360
+command = ["bash", "validation/interop/cases/remote-management-interop-smoke.sh"]
+inputs = ["validation/interop/cases/remote-management-interop-smoke.sh", "validation/interop/peers/rns_remote_management_client.py"]
+artifacts = "validation-artifacts/results/interop-remote-management"
+
+[[suite]]
+id = "interop-probe-responder"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 360
+command = ["bash", "validation/interop/cases/probe-responder-interop-smoke.sh"]
+inputs = ["validation/interop/cases/probe-responder-interop-smoke.sh", "validation/interop/peers/rns_probe_client.py"]
+artifacts = "validation-artifacts/results/interop-probe-responder"
+
+[[suite]]
+id = "interop-blackhole"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 420
+command = ["bash", "validation/interop/cases/blackhole-exchange-interop-smoke.sh"]
+inputs = ["validation/interop/cases/blackhole-exchange-interop-smoke.sh", "validation/interop/peers/rns_blackhole_exchange.py"]
+artifacts = "validation-artifacts/results/interop-blackhole"
+
+[[suite]]
+id = "interop-rnode-tcp"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 300
+command = ["bash", "validation/interop/cases/rnode-tcp-interop-smoke.sh"]
+inputs = ["validation/interop/cases/rnode-tcp-interop-smoke.sh", "validation/interop/peers/rns_rnode_tcp_device.py"]
+artifacts = "validation-artifacts/results/interop-rnode-tcp"
+
+[[suite]]
+id = "interop-local-transit"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 420
+command = ["bash", "validation/interop/cases/local-transit-smoke.sh"]
+inputs = ["validation/interop/cases/local-transit-smoke.sh", "validation/interop/peers/rns_transit_client.py", "validation/interop/peers/rns_transit_peer.py"]
+artifacts = "validation-artifacts/results/interop-local-transit"
+
+[[suite]]
+id = "interop-ifac-tcp"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/ifac-tcp-interop-smoke.sh"]
+inputs = ["validation/interop/cases/ifac-tcp-interop-smoke.sh", "validation/interop/cases/local-transit-smoke.sh", "validation/interop/peers/rns_transit_client.py", "validation/interop/peers/rns_transit_peer.py", "validation/interop/peers/rns_ifac_hostile.py"]
+artifacts = "validation-artifacts/results/interop-ifac-tcp"
+
+[[suite]]
+id = "interop-inverse-instance"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 300
+command = ["bash", "validation/interop/cases/local-client-smoke.sh"]
+inputs = ["validation/interop/cases/local-client-smoke.sh"]
+artifacts = "validation-artifacts/results/interop-inverse-instance"
+
+[[suite]]
+id = "interop-tcp-server"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "smoke"
+timeout_seconds = 420
+command = ["bash", "validation/interop/cases/tcp-server-interop-smoke.sh"]
+inputs = ["validation/interop/cases/tcp-server-interop-smoke.sh", "validation/interop/peers/rns_tcp_client_peer.py"]
+artifacts = "validation-artifacts/results/interop-tcp-server"
+
+[[suite]]
+id = "interop-napi-tcp-server"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release"]
+platform = "linux"
+toolchain = "node"
+interpreter = "smoke"
+timeout_seconds = 420
+command = ["bash", "validation/interop/cases/napi-tcp-server-interop-smoke.sh"]
+inputs = ["validation/interop/cases/napi-tcp-server-interop-smoke.sh", "validation/interop/peers/rns_tcp_client_peer.py", "prns-napi/tests/interop/tcp_server_host.mjs"]
+artifacts = "validation-artifacts/results/interop-napi-tcp-server"
+
+[[suite]]
+id = "interop-napi-tcp-client"
+domain = "interop"
+group = "essential"
+tiers = ["pr", "release"]
+platform = "linux"
+toolchain = "node"
+interpreter = "smoke"
+timeout_seconds = 420
+command = ["bash", "validation/interop/cases/napi-tcp-client-interop-smoke.sh"]
+inputs = ["validation/interop/cases/napi-tcp-client-interop-smoke.sh", "validation/interop/peers/rns_tcp_server_peer.py", "prns-napi/tests/interop/tcp_client_probe.mjs"]
+artifacts = "validation-artifacts/results/interop-napi-tcp-client"
+
+[[suite]]
+id = "interop-rnid-local"
+domain = "interop"
+group = "utility"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 300
+command = ["bash", "validation/interop/cases/rnid-local-interop-smoke.sh"]
+inputs = ["validation/interop/cases/rnid-local-interop-smoke.sh", "validation/interop/peers/rns_rnid_oracle.py"]
+artifacts = "validation-artifacts/results/interop-rnid-local"
+
+[[suite]]
+id = "interop-rnid-network"
+domain = "interop"
+group = "utility"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 420
+command = ["bash", "validation/interop/cases/rnid-network-interop-smoke.sh"]
+inputs = ["validation/interop/cases/rnid-network-interop-smoke.sh", "validation/interop/peers/rns_rnid_network_server.py"]
+artifacts = "validation-artifacts/results/interop-rnid-network"
+
+[[suite]]
+id = "interop-rnstatus"
+domain = "interop"
+group = "utility"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 420
+command = ["bash", "validation/interop/cases/rnstatus-interop-smoke.sh"]
+inputs = ["validation/interop/cases/rnstatus-interop-smoke.sh", "validation/interop/peers/rns_rnstatus_server.py"]
+artifacts = "validation-artifacts/results/interop-rnstatus"
+
+[[suite]]
+id = "interop-rnpath"
+domain = "interop"
+group = "utility"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/rnpath-interop-smoke.sh"]
+inputs = ["validation/interop/cases/rnpath-interop-smoke.sh", "validation/interop/peers/rns_rnpath_server.py"]
+artifacts = "validation-artifacts/results/interop-rnpath"
+
+[[suite]]
+id = "interop-rnprobe"
+domain = "interop"
+group = "utility"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 420
+command = ["bash", "validation/interop/cases/rnprobe-interop-smoke.sh"]
+inputs = ["validation/interop/cases/rnprobe-interop-smoke.sh", "validation/interop/peers/rns_rnprobe_server.py"]
+artifacts = "validation-artifacts/results/interop-rnprobe"
+
+[[suite]]
+id = "interop-rncp"
+domain = "interop"
+group = "utility"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/rncp-interop-smoke.sh"]
+inputs = ["validation/interop/cases/rncp-interop-smoke.sh", "validation/interop/peers/rns_rncp_oracle.py"]
+artifacts = "validation-artifacts/results/interop-rncp"
+
+[[suite]]
+id = "interop-rnx"
+domain = "interop"
+group = "utility"
+tiers = ["release", "scheduled"]
+platform = "linux"
+toolchain = "stable"
+interpreter = "rpc"
+timeout_seconds = 600
+command = ["bash", "validation/interop/cases/rnx-interop-smoke.sh"]
+inputs = ["validation/interop/cases/rnx-interop-smoke.sh", "validation/interop/peers/rns_rnx_oracle.py"]
+artifacts = "validation-artifacts/results/interop-rnx"
+
+[[suite]]
+id = "interop-websocket-ecosystem-characterization"
+domain = "interop"
+group = "linux-network"
+tiers = ["scheduled"]
+platform = "linux"
+toolchain = "python"
+timeout_seconds = 600
+command = ["__RUNNER_PYTHON__", "validation/interop/websocket_ecosystem_characterization.py"]
+inputs = [
+  "validation/interop/websocket_ecosystem_characterization.py",
+  "validation/interop/peers/websocket_ecosystem/aerik.mjs",
+  "validation/interop/peers/websocket_ecosystem/bergie.mjs",
+  "validation/interop/peers/websocket_ecosystem/bergie_prns.mjs",
+  "validation/interop/peers/websocket_ecosystem/nilu96.py",
+  "validation/integration/Cargo.toml",
+  "validation/integration/Cargo.lock",
+  "validation/integration/examples/websocket_bergie_peer.rs",
+  "prns-core/src/interfaces/websocket",
+  "prns-interfaces/impls/tokio/src/websocket",
+]
+artifacts = "validation-artifacts/results/interop-websocket-ecosystem-characterization"
+
+[[suite]]
+id = "interop-websocket-bergie-lxmf-e2e"
+domain = "interop"
+group = "linux-network"
+tiers = ["scheduled"]
+platform = "linux"
+toolchain = "python"
+timeout_seconds = 600
+command = [
+  "__RUNNER_PYTHON__",
+  "validation/interop/websocket_ecosystem_characterization.py",
+  "--lxmf-application-e2e",
+]
+inputs = [
+  "validation/interop/websocket_ecosystem_characterization.py",
+  "validation/interop/websocket_bergie_lxmf_e2e.py",
+  "validation/interop/peers/websocket_ecosystem/bergie_lxmf/echo.mjs",
+  "validation/interop/peers/websocket_ecosystem/bergie_lxmf/sender.mjs",
+  "prns-core/src/interfaces/websocket",
+  "prns-interfaces/impls/tokio/src/websocket",
+  "personal-rns/src",
+  "prnsd/Cargo.toml",
+  "prnsd/Cargo.lock",
+  "prnsd/src",
+]
+artifacts = "validation-artifacts/results/interop-websocket-bergie-lxmf-e2e"
+
+[[fuzz_target]]
+name = "wire_announce_parse"
+path = "fuzz_targets/wire_announce_parse.rs"
+group = "wire"
+tiers = ["release", "scheduled"]
+
+[[fuzz_target]]
+name = "egress_reemit_round_trip"
+path = "fuzz_targets/egress_reemit_round_trip.rs"
+group = "engine"
+tiers = ["release", "scheduled"]
+
+[[fuzz_target]]
+name = "link_handshake_parse"
+path = "fuzz_targets/link_handshake_parse.rs"
+group = "links"
+tiers = ["release", "scheduled"]
+
+[[fuzz_target]]
+name = "engine_ingest_never_panics"
+path = "fuzz_targets/engine_ingest_never_panics.rs"
+group = "engine"
+tiers = ["release", "scheduled"]
+
+[[fuzz_target]]
+name = "config_configobj_parse"
+path = "fuzz_targets/config_configobj_parse.rs"
+group = "config"
+tiers = ["release", "scheduled"]
+
+[[fuzz_target]]
+name = "config_reference_parse"
+path = "fuzz_targets/config_reference_parse.rs"
+group = "config"
+tiers = ["release", "scheduled"]
+
+[[fuzz_target]]
+name = "resource_plaintexts_parse"
+path = "fuzz_targets/resource_plaintexts_parse.rs"
+group = "resources"
+tiers = ["release", "scheduled"]
+
+[[fuzz_target]]
+name = "shared_instance_rpc_request_msgpack"
+path = "fuzz_targets/shared_instance_rpc_request_msgpack.rs"
+group = "rpc"
+tiers = ["release", "scheduled"]
+
+[[fuzz_target]]
+name = "gnss_nmea_stream"
+path = "fuzz_targets/gnss_nmea_stream.rs"
+group = "gnss"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "hops_above_pathfinder_m_always_reject_before_any_other_gate"
+source = "prns-core/src/routing/announce/acceptance.rs"
+group = "routing"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "an_upstream_app_destination_rejects_when_hops_are_in_range"
+source = "prns-core/src/routing/announce/acceptance.rs"
+group = "routing"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "reemit_announce_exact_buffer_serializes_header_and_payload_length"
+source = "prns-core/src/engine/node_egress/announce_reemission.rs"
+group = "engine"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "reemit_announce_short_buffer_rejects_before_a_full_packet_is_written"
+source = "prns-core/src/engine/node_egress/announce_reemission.rs"
+group = "engine"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "decoded_signalling_bytes_always_land_in_range"
+source = "prns-core/src/routing/links/handshake.rs"
+group = "links"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "signalling_bytes_round_trip_for_every_in_range_mtu_and_mode"
+source = "prns-core/src/routing/links/handshake.rs"
+group = "links"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "keepalive_for_any_rtt_stays_inside_the_reference_clamp"
+source = "prns-core/src/routing/links/maintenance.rs"
+group = "links"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "stale_is_exactly_twice_any_clamped_keepalive"
+source = "prns-core/src/routing/links/maintenance.rs"
+group = "links"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "the_grace_never_dips_below_the_stale_grace_floor"
+source = "prns-core/src/routing/links/maintenance.rs"
+group = "links"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "fleet_member_and_supervisor_kinds_are_inverses"
+source = "prns-core/src/interfaces/identity/kind.rs"
+group = "interfaces"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "fleet_supervisor_discriminants_fit_the_fan_mask"
+source = "prns-core/src/interfaces/identity/kind.rs"
+group = "interfaces"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "proof_plaintext_round_trips_for_any_hash_pair"
+source = "prns-core/src/routing/links/resources/control.rs"
+group = "resources"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "cancel_plaintext_round_trips_for_any_resource_hash"
+source = "prns-core/src/routing/links/resources/control.rs"
+group = "resources"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "an_anchored_radio_never_retunes_and_never_seeks"
+source = "prns-core/src/interfaces/channel_rendezvous.rs"
+group = "interfaces"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "a_free_radio_never_stays"
+source = "prns-core/src/interfaces/channel_rendezvous.rs"
+group = "interfaces"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "two_radios_that_have_learned_each_other_always_converge"
+source = "prns-core/src/interfaces/channel_rendezvous.rs"
+group = "interfaces"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "a_channel_that_cannot_host_a_group_always_yields_incompatible"
+source = "prns-core/src/interfaces/channel_rendezvous.rs"
+group = "interfaces"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "path_request_parse_never_panics_for_any_wire_payload"
+source = "prns-core/src/routing/ingress/path_requests.rs"
+group = "routing"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "sentence_byte_append_preserves_the_buffer_bound"
+source = "prns-core/src/capabilities/positioning/gnss.rs"
+group = "gnss"
+tiers = ["release", "scheduled"]
+
+[[kani]]
+name = "every_scaled_coordinate_output_respects_its_axis_bound"
+source = "prns-core/src/capabilities/positioning/gnss.rs"
+group = "gnss"
+tiers = ["release", "scheduled"]

@@ -1,0 +1,258 @@
+import {
+  DESTINATION_HASH_LENGTH,
+  IDENTITY_HASH_LENGTH,
+  IDENTITY_SECRET_LENGTH,
+  INTERFACE_ID_LENGTH,
+  LINK_ID_LENGTH,
+  PACKET_HASH_LENGTH,
+  REQUEST_ID_LENGTH,
+  REQUEST_PATH_HASH_LENGTH,
+  RESOURCE_HASH_LENGTH,
+} from "./contract.generated.js";
+import type {
+  CapabilityName,
+  CommandFailure,
+  CommandOutcome,
+  DestinationConfig,
+  DestinationHash,
+  HostCommand,
+  IdentityConfig,
+  IdentityHash,
+  IdentitySecret,
+  HostRoleName,
+  InterfaceId,
+  LinkId,
+  PrnsLimits,
+  PersistenceConfig,
+  PacketHash,
+  RequestId,
+  RequestPathHash,
+  ResourceHash,
+} from "./contract.generated.js";
+import type { Tag } from "./casework.js";
+
+export * from "./contract.generated.js";
+
+export type PrnsValidationCode =
+  | "EmptyString"
+  | "InvalidBytes"
+  | "InvalidEnum"
+  | "InvalidLimit"
+  | "InvalidNumber"
+  | "MissingDestinationAspect";
+
+export class PrnsValidationError extends Error {
+  readonly code: PrnsValidationCode;
+
+  constructor(code: PrnsValidationCode, message: string) {
+    super(message);
+    this.name = "PrnsValidationError";
+    this.code = code;
+  }
+}
+
+export function contractValue<Value extends string>(
+  field: string,
+  value: unknown,
+  guard: (candidate: unknown) => candidate is Value,
+): Value {
+  if (!guard(value)) {
+    throw new PrnsValidationError(
+      "InvalidEnum",
+      `${field} contains an unknown host contract value`,
+    );
+  }
+  return value;
+}
+
+export type PrnsCreateOptions = {
+  readonly identity: IdentityConfig;
+  readonly role: HostRoleName;
+  readonly destinations?: readonly DestinationConfig[];
+  readonly limits?: PrnsLimits;
+  readonly persistence?: PersistenceConfig;
+};
+
+export type LifecycleState =
+  | Tag<"Starting">
+  | Tag<"Running">
+  | Tag<"Stopping">
+  | Tag<"Stopped", { readonly reason: "Requested" | "BackendExited" }>
+  | Tag<
+      "Failed",
+      | {
+          readonly cause: "EventBackpressureExceeded";
+          readonly limits: PrnsLimits;
+          readonly rejectedEventBytes: number;
+        }
+      | {
+          readonly cause: "BackendFailed" | "ContractViolated";
+          readonly detail: string;
+        }
+    >;
+
+export type BackendCapabilities =
+  | Tag<
+      "Native",
+      {
+        readonly available: ReadonlySet<CapabilityName>;
+        readonly interfaceKinds: ReadonlySet<import("./contract.generated.js").InterfaceKind>;
+      }
+    >
+  | Tag<
+      "Browser",
+      {
+        readonly available: ReadonlySet<CapabilityName>;
+        readonly interfaceKinds: ReadonlySet<import("./contract.generated.js").InterfaceKind>;
+      }
+    >
+  | Tag<
+      "Cooperative",
+      {
+        readonly available: ReadonlySet<CapabilityName>;
+        readonly interfaceKinds: ReadonlySet<import("./contract.generated.js").InterfaceKind>;
+      }
+    >;
+
+export type ContractMismatch = Tag<
+  "ContractMismatch",
+  {
+    readonly requiredAbi: number;
+    readonly actualAbi: number;
+    readonly requiredSchemaVersion: number;
+    readonly actualSchemaVersion: number;
+    readonly requiredProductVersion: string;
+    readonly actualProductVersion: string;
+  }
+>;
+
+export type CapabilityUnavailable = Tag<
+  "CapabilityUnavailable",
+  { readonly capability: CapabilityName }
+>;
+
+export type BackendStartFailed = Tag<
+  "BackendStartFailed",
+  { readonly detail: string; readonly code?: string }
+>;
+
+export type CommandSettlement =
+  | Tag<"Succeeded", CommandOutcome>
+  | Tag<"Failed", CommandFailure>;
+
+export type CommandOutcomeFor<Command extends HostCommand> =
+  Command extends Tag<"Announce", unknown>
+    ? Extract<CommandOutcome, { readonly tag: "Announced" }>
+    : Command extends Tag<"SendSinglePacket", unknown>
+      ? Extract<CommandOutcome, { readonly tag: "PacketDelivered" }>
+      : Command extends Tag<"CloseLink", unknown>
+        ? Extract<CommandOutcome, { readonly tag: "LinkCloseQueued" }>
+        : Command extends
+              | Tag<"AttachTcpServer", unknown>
+              | Tag<"AttachTcpClient", unknown>
+              | Tag<"AttachUdp", unknown>
+              | Tag<"AttachInterface", unknown>
+          ? Extract<CommandOutcome, { readonly tag: "InterfaceAttached" }>
+          : Command extends Tag<"DetachInterface", unknown>
+            ? Extract<CommandOutcome, { readonly tag: "InterfaceDetached" }>
+            : Command extends Tag<"EstablishLink", unknown>
+              ? Extract<CommandOutcome, { readonly tag: "LinkEstablished" }>
+              : Command extends Tag<"RequestPath", unknown>
+                ? Extract<CommandOutcome, { readonly tag: "PathDiscovered" }>
+                : Command extends Tag<"Identify", unknown>
+                  ? Extract<CommandOutcome, { readonly tag: "Identified" }>
+                  : Command extends
+                        | Tag<"SendLinkPacket", unknown>
+                        | Tag<"SendChannelMessage", unknown>
+                    ? Extract<
+                        CommandOutcome,
+                        { readonly tag: "PacketDelivered" }
+                      >
+                    : Command extends Tag<"Request", unknown>
+                      ? Extract<
+                          CommandOutcome,
+                          { readonly tag: "ResponseReceived" }
+                        >
+                      : Command extends Tag<"Respond", unknown>
+                        ? Extract<
+                            CommandOutcome,
+                            { readonly tag: "ResponseSent" }
+                          >
+                        : Command extends Tag<"SendResource", unknown>
+                          ? Extract<
+                              CommandOutcome,
+                              { readonly tag: "ResourceSent" }
+                            >
+                          : Command extends
+                                | Tag<
+                                    "SetLinkResourceStrategy",
+                                    unknown
+                                  >
+                                | Tag<
+                                    "SetDestinationResourceStrategy",
+                                    unknown
+                                  >
+                            ? Extract<
+                                CommandOutcome,
+                                { readonly tag: "ResourceStrategySet" }
+                              >
+                            : Command extends Tag<"AllowRequester", unknown>
+                              ? Extract<
+                                  CommandOutcome,
+                                  { readonly tag: "RequesterAllowed" }
+                                >
+                              : never;
+
+export type CommandSettlementFor<Command extends HostCommand> =
+  | Tag<"Succeeded", CommandOutcomeFor<Command>>
+  | Tag<"Failed", CommandFailure>;
+
+export function destinationHash(bytes: Uint8Array): DestinationHash {
+  return fixedBytes("destination hash", bytes, DESTINATION_HASH_LENGTH);
+}
+
+export function identityHash(bytes: Uint8Array): IdentityHash {
+  return fixedBytes("identity hash", bytes, IDENTITY_HASH_LENGTH);
+}
+
+export function interfaceId(bytes: Uint8Array): InterfaceId {
+  return fixedBytes("interface ID", bytes, INTERFACE_ID_LENGTH);
+}
+
+export function linkId(bytes: Uint8Array): LinkId {
+  return fixedBytes("link ID", bytes, LINK_ID_LENGTH);
+}
+
+export function packetHash(bytes: Uint8Array): PacketHash {
+  return fixedBytes("packet hash", bytes, PACKET_HASH_LENGTH);
+}
+
+export function requestId(bytes: Uint8Array): RequestId {
+  return fixedBytes("request ID", bytes, REQUEST_ID_LENGTH);
+}
+
+export function requestPathHash(bytes: Uint8Array): RequestPathHash {
+  return fixedBytes("request path hash", bytes, REQUEST_PATH_HASH_LENGTH);
+}
+
+export function resourceHash(bytes: Uint8Array): ResourceHash {
+  return fixedBytes("resource hash", bytes, RESOURCE_HASH_LENGTH);
+}
+
+export function identitySecret(bytes: Uint8Array): IdentitySecret {
+  return fixedBytes("identity secret", bytes, IDENTITY_SECRET_LENGTH);
+}
+
+function fixedBytes<Value extends Uint8Array>(
+  label: string,
+  bytes: Uint8Array,
+  length: number,
+): Value {
+  if (!(bytes instanceof Uint8Array) || bytes.length !== length) {
+    throw new PrnsValidationError(
+      "InvalidBytes",
+      `${label} must contain exactly ${length} bytes`,
+    );
+  }
+  return bytes.slice() as Value;
+}

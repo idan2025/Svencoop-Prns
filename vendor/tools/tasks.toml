@@ -1,0 +1,942 @@
+schema = 1
+
+[[doctor_profile]]
+id = "getting-started"
+summary = "Check the tools needed to navigate the clone, build Rust code, and run the first node."
+requires = ["cargo", "git", "python", "rustc"]
+minimum_versions = { python = "3.11", rustc = "1.90" }
+setup = { cargo = "Install Rust through rustup: https://rustup.rs/", git = "Install Git with your operating system's package manager.", python = "Install Python 3.11 or newer with your operating system's package manager.", rustc = "Install or update Rust through rustup: https://rustup.rs/" }
+
+[[doctor_profile]]
+id = "node"
+summary = "Check the Rust toolchain needed to build, run, inspect, and control prnsd."
+requires = ["cargo", "rustc"]
+minimum_versions = { rustc = "1.90" }
+setup = { cargo = "Install Rust through rustup: https://rustup.rs/", rustc = "Install or update Rust through rustup: https://rustup.rs/" }
+
+[[doctor_profile]]
+id = "rust"
+summary = "Check the tools needed to build the Rust libraries and run the two-node guide."
+requires = ["cargo", "python", "rustc"]
+minimum_versions = { python = "3.11", rustc = "1.90" }
+setup = { cargo = "Install Rust through rustup: https://rustup.rs/", python = "Install Python 3.11 or newer with your operating system's package manager.", rustc = "Install or update Rust through rustup: https://rustup.rs/" }
+
+[[doctor_profile]]
+id = "docs"
+summary = "Check the exact tools used to build and serve the hosted documentation website."
+requires = ["cargo", "dx", "rustc"]
+minimum_versions = { rustc = "1.90" }
+exact_versions = { dx = "0.7.5" }
+setup = { cargo = "Install Rust through rustup: https://rustup.rs/", dx = "Install the pinned CLI with `cargo install dioxus-cli --version 0.7.5 --locked`.", rustc = "Install or update Rust through rustup: https://rustup.rs/" }
+
+[[doctor_profile]]
+id = "tests"
+summary = "Check the tools needed for the normal Rust and repository validation paths."
+requires = ["cargo", "git", "python", "rustc"]
+minimum_versions = { python = "3.11", rustc = "1.90" }
+setup = { cargo = "Install Rust through rustup: https://rustup.rs/", git = "Install Git with your operating system's package manager.", python = "Install Python 3.11 or newer with your operating system's package manager.", rustc = "Install or update Rust through rustup: https://rustup.rs/" }
+
+[[doctor_profile]]
+id = "benchmarks"
+summary = "Check the Rust, Python, uv, and native compiler tools used by the benchmark harness."
+requires = ["cargo", "python", "rustc", "uv"]
+platform_requires = { linux = ["cc"], macos = ["cc"], windows = ["cl"] }
+minimum_versions = { python = "3.11", rustc = "1.90" }
+setup = { cargo = "Install Rust through rustup: https://rustup.rs/", cc = "Install Xcode Command Line Tools on macOS or a C compiler through your Linux package manager.", cl = "Install the Visual Studio Build Tools C++ workload.", python = "Install Python 3.11 or newer with your operating system's package manager.", rustc = "Install or update Rust through rustup: https://rustup.rs/", uv = "Install uv using the instructions at https://docs.astral.sh/uv/getting-started/installation/." }
+
+[[task]]
+id = "build.android"
+summary = "Cross-compile the Personal RNS core for Android device and emulator targets."
+domain = "build"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/android.sh"]
+requires = ["bash", "cargo"]
+
+[[task]]
+id = "build.hopspot.t096"
+summary = "Build the Heltec T096 firmware and package its recovery-compatible developer UF2."
+domain = "build"
+effect = "workspace-write"
+platforms = ["linux", "macos"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/hopspot-nrf52840.sh", "t096"]
+requires = ["bash", "cargo", "python3", "rustc"]
+setup = "Install Rust with rustup so the nRF52840 target and llvm-tools-preview component declared by the firmware workspace are available."
+
+[[task]]
+id = "build.hopspot.t114"
+summary = "Build the headless Heltec T114 firmware and package its recovery-compatible developer UF2."
+domain = "build"
+effect = "workspace-write"
+platforms = ["linux", "macos"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/hopspot-nrf52840.sh", "t114"]
+requires = ["bash", "cargo", "python3", "rustc"]
+setup = "Install Rust with rustup so the nRF52840 target and llvm-tools-preview component declared by the firmware workspace are available."
+
+[[task]]
+id = "build.hopspot.t1000e"
+summary = "Build the headless T1000-E firmware and package its recovery-compatible developer UF2."
+domain = "build"
+effect = "workspace-write"
+platforms = ["linux", "macos"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/hopspot-nrf52840.sh", "t1000e"]
+requires = ["bash", "cargo", "python3", "rustc"]
+setup = "Install Rust with rustup so the nRF52840 target and llvm-tools-preview component declared by the firmware workspace are available."
+
+[[task]]
+id = "build.hopspot.mesh-tower-v2"
+summary = "Build the headless Heltec MeshTower V2 firmware with S140 6.1.1 Bluetooth Auto and package its recovery-compatible developer UF2."
+domain = "build"
+effect = "workspace-write"
+platforms = ["linux", "macos"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/hopspot-mesh-tower-v2.sh"]
+requires = ["bash", "cargo", "python3", "rustc"]
+setup = "Install Rust with rustup so the nRF52840 target and llvm-tools-preview component declared by the firmware workspace are available."
+
+[[task]]
+id = "guide.rust-basics"
+summary = "Rust quickstart: run the bounded two-node API contract over an isolated localhost TCP connection."
+domain = "guide"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["python3", "tools/guide/run-rust-example.py", "node_basics", "tokio-host,tcp"]
+requires = ["cargo", "python3"]
+
+[[task]]
+id = "guide.rust-auto-discovery"
+summary = "Rust follow-up: two nodes with no addresses in code find each other over Wi-Fi auto-discovery."
+domain = "guide"
+effect = "network-listen"
+platforms = ["any"]
+audience = ["developer"]
+entrypoint = ["python3", "tools/guide/run-rust-example.py", "auto_discovery", "tokio-host,wifi-auto"]
+requires = ["cargo", "python3"]
+
+[[task]]
+id = "guide.rust-bounded-request"
+summary = "Rust follow-up: a registered request endpoint answers a peer's echo request over a link."
+domain = "guide"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["python3", "tools/guide/run-rust-example.py", "bounded_request", "tokio-host,tcp"]
+requires = ["cargo", "python3"]
+
+[[task]]
+id = "guide.rust-resource-transfer"
+summary = "Rust follow-up: a bounded 64 KiB resource transfer settles with verified delivery."
+domain = "guide"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["python3", "tools/guide/run-rust-example.py", "resource_transfer", "tokio-host,tcp"]
+requires = ["cargo", "python3"]
+
+[[task]]
+id = "guide.rust-dynamic-interface"
+summary = "Rust follow-up: a running node attaches a TCP interface, observes it, and tears it down."
+domain = "guide"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["python3", "tools/guide/run-rust-example.py", "dynamic_interface", "tokio-host,tcp"]
+requires = ["cargo", "python3"]
+
+[[task]]
+id = "guide.rust-app-state"
+summary = "Rust follow-up: a request endpoint serves and updates the node's typed app state across two requests."
+domain = "guide"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["python3", "tools/guide/run-rust-example.py", "app_state", "tokio-host,tcp"]
+requires = ["cargo", "python3"]
+
+[[task]]
+id = "guide.rust-transport-node"
+summary = "Rust follow-up: a transport node relays an announce between two nodes that share no link."
+domain = "guide"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["python3", "tools/guide/run-rust-example.py", "transport_node", "tokio-host,tcp"]
+requires = ["cargo", "python3"]
+
+[[task]]
+id = "guide.rust-persistence"
+summary = "Rust follow-up: a node saves what it learns and proves it across a full restart; run it twice."
+domain = "guide"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer"]
+entrypoint = ["python3", "tools/guide/run-rust-example.py", "persistence", "tokio-host,tcp"]
+requires = ["cargo", "python3"]
+
+[[task]]
+id = "build.napi"
+summary = "Build the Node.js native addon and its generated TypeScript definitions."
+domain = "build"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/napi.sh", "build"]
+requires = ["bash", "cargo", "node", "npm"]
+
+[[task]]
+id = "build.napi.test"
+summary = "Build the Node.js native addon in debug and run its JavaScript test suite."
+domain = "build"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/napi.sh", "test"]
+requires = ["bash", "cargo", "node", "npm"]
+
+[[task]]
+id = "build.web-flasher.nrf-dfu.stage"
+summary = "Build and stage the pinned Nordic DFU WASM core for the hosted web flasher."
+domain = "build"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/stage-web-flasher-nrf-dfu-wasm.sh"]
+requires = ["bash", "cargo", "wasm-bindgen"]
+setup = "cargo install wasm-bindgen-cli --version 0.2.126 --locked"
+
+[[task]]
+id = "build.web-flasher.nrf-dfu.test"
+summary = "Test the Nordic DFU core and its generated Node.js WASM boundary."
+domain = "build"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/test-web-flasher-nrf-dfu-wasm.sh"]
+requires = ["bash", "cargo", "node", "wasm-bindgen"]
+setup = "cargo install wasm-bindgen-cli --version 0.2.126 --locked"
+
+[[task]]
+id = "build.wasm-docs.stage"
+summary = "Build and stage the browser transport playground into the documentation site."
+domain = "build"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["bash", "tools/build/stage-wasm-docs-browser-playground.sh"]
+requires = ["bash", "cargo", "npm", "wasm-bindgen"]
+setup = "cargo install wasm-bindgen-cli --version 0.2.126 --locked"
+
+[[task]]
+id = "device.techo.flash"
+summary = "Detect the mounted T-Echo foundation, build its compatible UF2, flash it, and verify reboot."
+domain = "device"
+effect = "device-write"
+platforms = ["macos"]
+audience = ["developer", "operator"]
+entrypoint = ["bash", "tools/device/techo-flash.sh"]
+requires = ["bash", "cargo", "python3", "rustc"]
+
+[[task]]
+id = "device.uf2.convert"
+summary = "Convert a raw firmware binary into a UF2 image."
+domain = "device"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci"]
+entrypoint = ["python3", "tools/device/bin2uf2.py"]
+requires = ["python3"]
+
+[[task]]
+id = "device.webusb.install"
+summary = "Install the Linux udev rule granting local access to Prns WebUSB devices."
+domain = "device"
+effect = "host-write"
+platforms = ["linux"]
+audience = ["developer", "operator"]
+entrypoint = ["bash", "tools/device/install-prns-webusb-udev.sh"]
+requires = ["bash", "sudo", "udevadm"]
+
+[[task]]
+id = "device.hopspot.dev-flasher.serve"
+summary = "Build selected working-tree firmware, sign it ephemerally, and serve the real web flasher on loopback."
+domain = "device"
+effect = "network-listen"
+platforms = ["any"]
+audience = ["developer"]
+entrypoint = ["python", "tools/device/hopspot-dev-flasher.py"]
+requires = ["cargo", "dx", "git", "npm", "python"]
+
+[[task]]
+id = "repo.host-contract.generate"
+summary = "Regenerate every host-contract language artifact from the canonical schema."
+domain = "repo"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "release"]
+entrypoint = ["python3", "tools/repo/generate-host-contract.py"]
+requires = ["python3"]
+
+[[task]]
+id = "repo.host-contract.check"
+summary = "Verify generated host-contract artifacts and required high-level SDK projections match the canonical schema."
+domain = "repo"
+effect = "read-only"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python3", "tools/repo/generate-host-contract.py", "--check"]
+requires = ["python3"]
+
+[[task]]
+id = "release.host-sdk.versions"
+summary = "Verify every host SDK release surface agrees with VERSION."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/check-host-sdk-versions.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.distribution.check"
+summary = "Verify the canonical host SDK package graph, metadata, target matrix, and shared README projections."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/check-host-sdk-distribution.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.native.package"
+summary = "Assemble one native host target with its ABI header, licenses, pkg-config metadata, and hash manifest."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/package-host-native.py"]
+requires = ["git"]
+
+[[task]]
+id = "release.host-sdk.native.archive"
+summary = "Create a deterministic target-native host archive from one packaged capsule."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/archive-host-native.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.stage"
+summary = "Assemble checked host SDK artifacts into one SHA-bound release staging index."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/stage-host-sdk-release.py"]
+requires = ["git"]
+
+[[task]]
+id = "release.host-sdk.rust.package"
+summary = "Package the complete Rust crate graph and compile a consumer from the normalized staged archives."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/package-rust-crates.py"]
+requires = ["cargo", "git"]
+
+[[task]]
+id = "release.host-sdk.rust.publish"
+summary = "Publish the verified Rust crate graph to crates.io in dependency order from one approved commit."
+domain = "release"
+effect = "external-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python", "tools/release/publish-rust-crates.py"]
+requires = ["cargo", "git"]
+
+[[task]]
+id = "release.host-sdk.julia.artifacts"
+summary = "Generate Julia artifact bindings from all staged desktop native archives and their immutable hashes."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/generate-julia-artifacts.py"]
+requires = ["git"]
+
+[[task]]
+id = "release.host-sdk.javascript.stage"
+summary = "Stage canonical package documents into every generated N-API platform package allowlist."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/stage-napi-platform-packages.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.sources.package"
+summary = "Create deterministic Go, Swift, and Julia source SDK archives bound to one commit and native artifact set."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/package-host-source-sdks.py"]
+requires = ["git"]
+
+[[task]]
+id = "release.host-sdk.android.package"
+summary = "Assemble the two Android native host libraries into a deterministic conventional jniLibs archive."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/package-android-jni.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.stage.verify"
+summary = "Verify a complete SHA-bound host SDK stage, its hashes, archive safety, payload hygiene, and ecosystem inventory."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/verify-host-sdk-stage.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.promotion.prepare"
+summary = "Select and hash the signed-tag and immutable-release assets from one verified SHA-bound host SDK stage."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python", "tools/release/prepare-host-sdk-promotion.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.dotnet.stage"
+summary = "Stage validated native host artifacts into the NuGet runtime layout."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/stage-dotnet-runtimes.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.dotnet.smoke"
+summary = "Restore a clean .NET consumer from one staged NuGet package and exercise its bundled native host."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/smoke-dotnet-package.py"]
+requires = ["dotnet"]
+
+[[task]]
+id = "release.host-sdk.python.stage"
+summary = "Stage one exact native host target and project licenses into the Python wheel source tree."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/stage-python-native.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.python.smoke"
+summary = "Install one assembled Python wheel in isolation and exercise its bundled native host."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/smoke-python-wheel.py"]
+requires = []
+
+[[task]]
+id = "release.host-sdk.maven.smoke"
+summary = "Resolve a clean Java consumer from the staged Maven repository and exercise the paired native host."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python", "tools/release/smoke-maven-package.py"]
+requires = ["java"]
+
+[[task]]
+id = "repo.notices.generate"
+summary = "Regenerate the repository's locked third-party notice document."
+domain = "repo"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "release"]
+entrypoint = ["python3", "tools/repo/generate-third-party-notices.py"]
+requires = ["cargo", "npm", "python3"]
+
+[[task]]
+id = "repo.web.serve"
+summary = "Serve a static single-page application with index fallback for local inspection."
+domain = "repo"
+effect = "network-listen"
+platforms = ["any"]
+audience = ["developer"]
+entrypoint = ["python3", "tools/repo/serve-static-spa.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.firmware.build"
+summary = "Build one shipping board's deterministic flash artifact."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["bash", "tools/release/build-flash-artifact.sh"]
+requires = ["bash", "cargo"]
+
+[[task]]
+id = "release.candidate.build"
+summary = "Build the unsigned reproducible firmware, website, documentation, and manifest candidate."
+domain = "release"
+effect = "workspace-write"
+platforms = ["linux", "macos"]
+audience = ["ci", "release"]
+entrypoint = ["bash", "tools/release/build-flasher-candidate.sh"]
+requires = ["bash", "cargo", "dx", "git", "npm", "python3", "rg"]
+
+[[task]]
+id = "release.candidate.compare"
+summary = "Compare independently built candidates and emit reproducibility evidence."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/compare-flasher-candidates.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.source.package"
+summary = "Package one exact Git commit as the hosted website source snapshot."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["python3", "tools/release/package-source-snapshot.py"]
+requires = ["git", "python3"]
+
+[[task]]
+id = "release.acceptance.create"
+summary = "Create a release acceptance scaffold bound to the candidate manifest."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["operator", "release"]
+entrypoint = ["python3", "tools/release/create-flasher-acceptance.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.candidate.extract"
+summary = "Safely extract a packaged flasher candidate into a new destination."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["python3", "tools/release/extract-flasher-candidate.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.candidate.finalize"
+summary = "Finalize an assembled candidate and write its release metadata and sparse-size evidence."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/finalize-flasher-candidate.py"]
+requires = ["git", "python3"]
+
+[[task]]
+id = "release.public-review"
+summary = "Create, discover, or verify immutable protected public-review evidence."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/flasher-public-review.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.record"
+summary = "Create or verify the signed release custody record."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/flasher-release-record.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.rollback"
+summary = "Stage, validate, record, or compare-and-swap a release rollback plan."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["python3", "tools/release/flasher-rollback.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.website-history"
+summary = "Bootstrap, retain, apply, probe, or validate signed website history."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/flasher-website-history.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.toolchain.esp.install"
+summary = "Install the exact Linux ESP release toolchain into an isolated destination."
+domain = "release"
+effect = "host-write"
+platforms = ["linux"]
+audience = ["ci", "release"]
+entrypoint = ["bash", "tools/release/install-release-esp-toolchain.sh"]
+requires = ["bash", "curl", "python3", "rustup"]
+
+[[task]]
+id = "release.toolchain.esp.verify"
+summary = "Verify the exact installed ESP compiler and release tools."
+domain = "release"
+effect = "read-only"
+platforms = ["linux"]
+audience = ["ci", "release"]
+entrypoint = ["bash", "tools/release/verify-release-esp-toolchain.sh"]
+requires = ["bash", "espup", "rustc", "xtensa-esp-elf-gcc"]
+
+[[task]]
+id = "release.toolchain.minisign.install"
+summary = "Install the pinned Minisign binary into an isolated destination."
+domain = "release"
+effect = "host-write"
+platforms = ["linux", "macos"]
+audience = ["ci", "release"]
+entrypoint = ["bash", "tools/release/install-release-minisign.sh"]
+requires = ["bash", "curl"]
+
+[[task]]
+id = "release.candidate.package"
+summary = "Create a deterministic archive from a complete flasher candidate."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/package-flasher-candidate.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.qualification.package"
+summary = "Package immutable qualification evidence for release finalization."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["python3", "tools/release/package-flasher-qualification-evidence.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.cli.package"
+summary = "Package one hopspot-flash binary for a release target."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/package-hopspot-flash.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.attestation.record"
+summary = "Create release attestation metadata bound to exact subject checksums."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/record-flasher-attestation.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.candidate.serve"
+summary = "Serve a candidate locally with qualification-safe response headers."
+domain = "release"
+effect = "network-listen"
+platforms = ["any"]
+audience = ["operator", "release"]
+entrypoint = ["python3", "tools/release/serve-flasher-candidate.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.candidate.sign"
+summary = "Sign every canonical flasher candidate subject with the release secret key."
+domain = "release"
+effect = "secret-bearing"
+platforms = ["linux", "macos"]
+audience = ["ci", "release"]
+entrypoint = ["bash", "tools/release/sign-flasher-candidate.sh"]
+requires = ["bash", "minisign"]
+
+[[task]]
+id = "release.document.sign"
+summary = "Sign one release custody document with the release secret key."
+domain = "release"
+effect = "secret-bearing"
+platforms = ["linux", "macos"]
+audience = ["ci", "release"]
+entrypoint = ["bash", "tools/release/sign-flasher-document.sh"]
+requires = ["bash", "minisign"]
+
+[[task]]
+id = "release.notices.stage"
+summary = "Copy canonical third-party notices into a distribution directory."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["bash", "tools/release/stage-release-notices.sh"]
+requires = ["bash"]
+
+[[task]]
+id = "release.acceptance.validate"
+summary = "Validate signed physical qualification and its complete evidence set."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["python3", "tools/release/validate-flasher-acceptance.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.installation-evidence.write"
+summary = "Write one roster-bound native CLI installation evidence object."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["python3", "tools/release/write-flasher-installation-evidence.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.candidate-run.validate"
+summary = "Validate the workflow identity and custody metadata for a candidate build run."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/validate-flasher-candidate-run.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.prerelease.validate"
+summary = "Validate that a public prerelease still matches the exact signed candidate."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/validate-flasher-prerelease.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.tester-roster.validate"
+summary = "Validate that a version's tester roster covers every shipping target."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["python3", "tools/release/validate-flasher-tester-roster.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.candidate.validate-unsigned"
+summary = "Validate an unsigned candidate's completeness, provenance, and reproducibility evidence."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/validate-unsigned-flasher-candidate.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.candidate-files.verify"
+summary = "Verify the candidate's bounded file inventory and archive-safe paths."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["python3", "tools/release/verify-flasher-candidate-files.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.candidate.verify"
+summary = "Verify a signed candidate and optional physical qualification evidence."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["bash", "tools/release/verify-flasher-candidate.sh"]
+requires = ["bash", "cargo", "python3"]
+
+[[task]]
+id = "release.assets.verify"
+summary = "Verify the complete remote release asset inventory against signed custody metadata."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/verify-flasher-release-assets.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.verify"
+summary = "Verify the complete candidate, acceptance, public review, and signed release record."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["bash", "tools/release/verify-flasher-release.sh"]
+requires = ["bash", "python3"]
+
+[[task]]
+id = "release.historical.verify"
+summary = "Verify a historical candidate with its immutable bundled qualification verifier."
+domain = "release"
+effect = "read-only"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/verify-historical-flasher-release.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.attestation.checksums"
+summary = "Write canonical SHA-256 checksums for release attestation subjects."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/write-flasher-attestation-checksums.py"]
+requires = ["python3"]
+
+[[task]]
+id = "release.metadata.write"
+summary = "Write exact tool and source metadata for a reproducible candidate build."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["python3", "tools/release/write-flasher-build-metadata.py"]
+requires = ["cargo", "dx", "git", "node", "npm", "python3", "rustc"]
+
+[[task]]
+id = "release.audit-evidence.write"
+summary = "Write dependency, notice, and unsafe-inventory hashes for release custody."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "release"]
+entrypoint = ["bash", "tools/release/write-release-audit-evidence.sh"]
+requires = ["bash", "git", "shasum"]
+
+[[task]]
+id = "release.prnsd.distribution"
+summary = "Package, reproduce, inventory, and describe native and OCI prnsd release artifacts."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["ci", "operator", "release"]
+entrypoint = ["python3", "tools/release/prnsd-distribution.py"]
+requires = ["python3"]
+
+[[internal]]
+path = "tools/device/developer_flasher_candidate.py"
+reason = "Validated local developer candidate boundary shared by the developer flasher workflow and its focused tests."
+
+[[internal]]
+path = "tools/release/flasher_acceptance_contract.py"
+reason = "Shared acceptance schema and scaffold implementation used by release commands and bundled qualification tools."
+
+[[internal]]
+path = "tools/release/flasher_build_metadata.py"
+reason = "Shared reproducible build metadata implementation."
+
+[[internal]]
+path = "tools/release/flasher_manifest.py"
+reason = "Shared signed flash manifest and UF2 validation implementation."
+
+[[internal]]
+path = "tools/release/flasher_browser_test_trust.py"
+reason = "Shared production development-trust boundary implementation."
+
+[[internal]]
+path = "tools/release/flasher_candidate_output.py"
+reason = "Internal output-path safety helper invoked by candidate construction."
+
+[[internal]]
+path = "tools/release/flasher_public_review.py"
+reason = "Shared immutable public-review evidence implementation."
+
+[[internal]]
+path = "tools/release/flasher_release_evidence.py"
+reason = "Shared release evidence hashing and subject inventory implementation."
+
+[[internal]]
+path = "tools/release/flasher_reproducibility.py"
+reason = "Shared deterministic candidate comparison implementation."
+
+[[internal]]
+path = "tools/release/flasher_rustdoc.py"
+reason = "Shared deterministic Rustdoc normalization implementation."
+
+[[internal]]
+path = "tools/release/release-esp-toolchain-identity.sh"
+reason = "Shared exact ESP compiler identity used by installation and verification."
+
+[[internal]]
+path = "tools/release/flasher_rollback.py"
+reason = "Shared rollback state, record, and compare-and-swap implementation."
+
+[[internal]]
+path = "tools/release/flasher_sparse_sizes.py"
+reason = "Shared sparse firmware size analysis implementation."
+
+[[internal]]
+path = "tools/release/source_snapshot.py"
+reason = "Shared deterministic source snapshot packaging and validation implementation."
+
+[[internal]]
+path = "tools/release/flasher_tester_roster.py"
+reason = "Shared tester roster schema and coverage implementation."
+
+[[internal]]
+path = "tools/release/flasher_website_history.py"
+reason = "Shared signed website history implementation."
+
+[[internal]]
+path = "tools/repo/host_contract/__init__.py"
+reason = "Internal host-contract generator validation package."
+
+[[internal]]
+path = "tools/repo/host_contract/model.py"
+reason = "Internal host-contract generator schema model."
+
+[[internal]]
+path = "tools/repo/cargo-tools-command/Cargo.toml"
+reason = "Cargo package metadata for the post-bootstrap cargo-tools forwarding adapter."
+
+[[internal]]
+path = "tools/repo/cargo-tools-command/src/main.rs"
+reason = "Thin Cargo adapter that forwards arguments to the canonical tools/prns task registry."

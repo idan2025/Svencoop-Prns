@@ -1,0 +1,12 @@
+[package]
+name = "prns-observability-runner"
+version = "0.0.0"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+prnsd-control.workspace = true

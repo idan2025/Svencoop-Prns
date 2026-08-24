@@ -1,0 +1,125 @@
+[package]
+name = "personal-hopspot-esp32"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Personal Hopspot ESP32 firmware: the Heltec V4 / V4-R8 and T-Beam Supreme (ESP32-S3) and the headless XIAO (ESP32-C6) faces."
+
+[workspace]
+members = [
+    "boards/heltec-v4",
+    "boards/heltec-v4-r8",
+    "boards/t-beam-supreme",
+    "boards/xiao-esp32-c6",
+]
+resolver = "2"
+
+[patch.crates-io]
+esp-alloc = { path = "vendor/esp-alloc-0.10.0" }
+esp-radio = { path = "vendor/esp-radio-0.18.0" }
+esp-radio-rtos-driver = { path = "vendor/esp-radio-rtos-driver-0.3.0" }
+esp-phy = { path = "vendor/esp-phy-0.2.0" }
+# Backport esp-rs/esp-hal#6027 and #6032 until these fixes are published. The affected 0.3.0
+# runtime tracks the two S3 main stacks at four times their actual size, misses idle-stack overflow
+# checks, enters Xtensa interrupt handlers with an inconsistent processor mode, and can free a
+# self-deleting task's live stack. This local copy also restores the FromISR wake flag required by
+# the ESP-IDF radio adapter contract.
+esp-rtos = { path = "vendor/esp-rtos-0.3.0" }
+esp-backtrace = { path = "vendor/esp-backtrace-0.19.0" }
+xtensa-lx-rt = { path = "vendor/xtensa-lx-rt-0.22.0" }
+trouble-host = { path = "vendor/trouble-host-0.6.0" }
+bt-hci = { git = "https://github.com/embassy-rs/bt-hci", rev = "adae58af86d241237ba52ed27d0d9dc9588155ee" }
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+bluetooth-auto = ["dep:trouble-host", "dep:prns-interfaces-embassy", "esp-radio/ble", "esp-radio/coex", "esp-rtos/esp-radio", "personal-rns/bluetooth-auto"]
+wifi-auto = ["esp-radio/wifi", "esp-radio/coex", "esp-rtos/esp-radio", "personal-rns/wifi-auto"]
+esp-now = ["esp-radio/esp-now", "esp-radio/coex", "esp-rtos/esp-radio", "personal-rns/esp-now"]
+lora = ["personal-rns/lora"]
+usb = ["personal-rns/usb"]
+tcp = ["wifi-auto", "personal-rns/tcp-dns", "embassy-net/dns"]
+
+[dependencies]
+cfg-if = "1.0"
+personal-hopspot-core = { path = "../../core", default-features = false }
+embedded-graphics = "0.8"
+heapless = { version = "0.8", default-features = false }
+embedded-storage = "0.3"
+embedded-storage-async = "0.4"
+
+[target.'cfg(target_arch = "xtensa")'.dependencies]
+personal-rns = { path = "../../../personal-rns", default-features = false, features = ["embassy-host", "external-alloc", "flash", "log"] }
+prns-interfaces-embassy = { path = "../../../prns-interfaces/impls/embassy", optional = true, default-features = false, features = ["bluetooth-auto-trouble", "log"] }
+allocator-api2 = { version = "0.3", default-features = false, features = ["alloc"] }
+embedded-hal = "1"
+embedded-hal-bus = { version = "0.3", features = ["async"] }
+esp-radio = { version = "0.18", default-features = false, features = ["esp32s3", "unstable", "esp-alloc"] }
+# Keep Trouble's packet pool in scarce internal RAM. The Embassy backend treats transient pool
+# exhaustion as notification backpressure, so sustained GATT bursts drain through these eight
+# packets instead of requiring a board-specific oversized pool.
+trouble-host = { version = "0.6.0", optional = true, default-features = false, features = ["default-packet-pool-size-8"] }
+embassy-net = { version = "0.9.1", default-features = false, features = ["proto-ipv4", "proto-ipv6", "dhcpv4", "medium-ethernet", "multicast", "tcp", "udp"] }
+static_cell = "2"
+portable-atomic = { version = "1", default-features = false }
+log = { version = "0.4", features = ["release_max_level_info"] }
+esp-hal = { version = "1.1", features = ["esp32s3", "unstable"] }
+esp-phy = "0.2.0"
+esp-backtrace = { version = "0.19", default-features = false, features = ["esp32s3", "panic-handler", "println"] }
+esp-println = { version = "0.17", default-features = false, features = ["esp32s3", "jtag-serial", "log-04"] }
+esp-bootloader-esp-idf = { version = "0.5", features = ["esp32s3"] }
+ssd1306 = "0.9"
+esp-rtos = { version = "0.3.0", features = ["esp32s3", "embassy", "esp-radio"] }
+esp-radio-rtos-driver = { version = "0.3.0", default-features = false }
+esp-alloc = { version = "0.10.0", features = ["internal-heap-stats"] }
+critical-section = "1"
+embassy-executor = { version = "0.10", default-features = false }
+embassy-time = { version = "0.5", default-features = false }
+embassy-sync = { version = "0.8", default-features = false }
+embassy-futures = { version = "0.1", default-features = false }
+
+# Seeed XIAO ESP32-C6 (riscv32, single-core, no PSRAM)
+[target.'cfg(target_arch = "riscv32")'.dependencies]
+personal-rns = { path = "../../../personal-rns", default-features = false, features = ["embassy-host", "flash", "log"] }
+prns-interfaces-embassy = { path = "../../../prns-interfaces/impls/embassy", optional = true, default-features = false, features = ["bluetooth-auto-trouble"] }
+esp-hal = { version = "1.1", features = ["esp32c6", "unstable"] }
+esp-rtos = { version = "0.3.0", features = ["esp32c6", "embassy"] }
+esp-alloc = { version = "0.10.0", features = ["internal-heap-stats"] }
+esp-backtrace = { version = "0.19", default-features = false, features = ["esp32c6", "panic-handler", "println"] }
+esp-println = { version = "0.17", default-features = false, features = ["esp32c6", "jtag-serial", "log-04"] }
+esp-bootloader-esp-idf = { version = "0.5", features = ["esp32c6"] }
+static_cell = "2"
+portable-atomic = { version = "1", default-features = false }
+log = { version = "0.4", features = ["release_max_level_info"] }
+critical-section = "1"
+embassy-executor = { version = "0.10", default-features = false }
+embassy-time = { version = "0.5", default-features = false }
+embassy-sync = { version = "0.8", default-features = false }
+embassy-futures = { version = "0.1", default-features = false }
+embedded-io = { version = "0.7", default-features = false }
+embedded-io-async = { version = "0.7", default-features = false }
+trouble-host = { version = "0.6.0", optional = true, default-features = false, features = ["default-packet-pool-size-32"] }
+esp-radio = { version = "0.18", default-features = false, features = ["esp32c6", "unstable", "esp-alloc"] }
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = "s"
+overflow-checks = false
+
+# esp-radio documents opt-level 2 or 3 as necessary for the timing-sensitive radio paths. Keep the
+# rest of the size-conscious firmware at `s` while optimizing that dependency for throughput.
+[profile.release.package.esp-radio]
+opt-level = 3
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

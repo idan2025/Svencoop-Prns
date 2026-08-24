@@ -1,0 +1,51 @@
+/target/
+/.build/
+# Nested build output — ignored regardless of where a crate/app dir lives or moves to
+**/target/
+**/build/
+!tools/build/
+!tools/build/**
+**/node_modules/
+**/dist/
+**/pkg/
+.DS_Store
+**/*.rs.bk
+godot-smoke/
+.vscode/*
+!.vscode/extensions.json
+.wifi-env
+.env
+# Parked standalone crate builds into its own target dir
+prnsd/target/
+/prnsd/.run/
+prns-config/target/
+prns-ffi/target/
+prns-wasm/target/
+prns-wasm/node_modules/
+prns-wasm/smoke/dist/
+prns-wasm/smoke/pkg/
+examples/*/target/
+dhat-heap.json
+benchmarks/target/
+benchmarks/reference/.venv/
+benchmarks/reference/.object-cache/
+benchmarks/.benchmark-runs/
+# Legacy dedicated venv for the previous RNS oracle
+/.venv-rns-1.4.0/
+/validation/.venv/
+**/__pycache__/
+# cargo-mutants run artifacts (mutants.out + the rotated mutants.out.old)
+/mutants.out*/
+# Deep-validation manifests collected for CI/local artifact upload
+/validation-artifacts/
+# Local design scratch — not part of the committed tree
+/scratch/
+/release/source-bundle/source.zip
+/release/source-bundle/source.zip.sha256
+
+/.codex/
+# Universal keyboard/mouse app — scratch build, not part of the committed tree yet
+/personal-km/
+# Reticulum runtime storage (per-node identity + state); regenerated at runtime
+**/.reticulum/
+**/.wrangler/

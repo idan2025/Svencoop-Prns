@@ -1,0 +1,50 @@
+[package]
+name = "prns-runtime"
+version = "0.3.7"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Runtime-neutral Personal Reticulum node contracts and manifold kernel"
+documentation = "https://docs.rs/prns-runtime"
+readme = "README.md"
+keywords = ["reticulum", "mesh", "networking", "runtime"]
+categories = ["network-programming", "asynchronous"]
+publish = true
+include = ["src/**", "tests/**", "!tests/**/__pycache__/**", "!tests/**/*.pyc", "examples/**", "Cargo.toml", "README.md"]
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+alloc = ["prns-core/alloc"]
+rnx = ["alloc", "prns-core/rnx"]
+interface-discovery = ["alloc", "prns-core/interface-discovery"]
+interface-discovery-archive = ["std", "interface-discovery", "prns-core/interface-discovery-archive"]
+external-alloc = ["alloc", "prns-core/external-alloc"]
+std = ["alloc", "prns-core/std"]
+runtime-metrics = ["alloc", "prns-core/runtime-metrics"]
+rns-management = ["alloc", "prns-core/shared-instance-rpc"]
+resource-bzip2 = ["std", "dep:bzip2"]
+
+[dependencies]
+prns-core = { version = "=0.3.7", path = "../../prns-core", default-features = false }
+prns-macros = { version = "=0.3.7", path = "../../prns-macros" }
+bzip2 = { version = "0.6", optional = true }
+cfg-if = "1.0"
+
+heapless = { version = "0.8", default-features = false }
+
+[dev-dependencies]
+prns-core = { version = "=0.3.7", path = "../../prns-core", default-features = false, features = ["test-support"] }
+futures-executor = "0.3"
+futures-test = "0.3"
+rmpv = "1.3"
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

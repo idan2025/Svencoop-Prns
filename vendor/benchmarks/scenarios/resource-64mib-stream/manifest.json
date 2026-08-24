@@ -1,0 +1,47 @@
+{
+  "name": "resource-64mib-stream",
+  "version": 10,
+  "order": 6,
+  "title": "64-segment resource stream",
+  "category": "Resources",
+  "summary": "Stream 64 maximum-efficient resource segments with compression disabled.",
+  "primary_metric": "goodput_bytes_per_sec",
+  "headline": true,
+  "notes": [
+    "Both implementations carry the same 67,108,800-byte payload in 64 maximum-efficient protocol segments. This is 64 bytes below 64 MiB and avoids making benchmark completion depend on RNS {reference_version}'s timing-sensitive handoff to a 65th 64-byte tail segment."
+  ],
+  "cell_notes": [
+    {
+      "subject": {
+        "path": "direct",
+        "initiator": "rns-1.4.0-compiled",
+        "responder": "personal-rns"
+      },
+      "text": "RNS prepares the next 1 MiB segment in a background thread. Prns proves the current segment before that preparation completes, making RNS enter a coarse 50 ms polling loop. A slower stock receiver gives preparation enough time to finish, avoiding that cliff."
+    },
+    {
+      "subject": {
+        "path": "direct",
+        "initiator": "rns-1.4.2-compiled",
+        "responder": "personal-rns"
+      },
+      "text": "RNS prepares the next 1 MiB segment in a background thread. Prns proves the current segment before that preparation completes, making RNS enter a coarse 50 ms polling loop. A slower stock receiver gives preparation enough time to finish, avoiding that cliff."
+    }
+  ],
+  "description": "A single large resource transferred whole, over and over, for a fixed wall-time - the multi-segment bulk mechanism. Each logical transfer is exactly 64 maximum-efficient segments, sent one at a time, hash-proved, and application-acknowledged before another logical transfer begins. The payload repeats one shared deterministic maximum-size block, allowing Prns to stream with bounded memory while both participants transmit identical bytes. Compression is disabled on both stacks.",
+  "roles": [
+    "responder",
+    "initiator"
+  ],
+  "profile": {
+    "mechanism": "resource",
+    "payload_len": 67108800,
+    "window": 1,
+    "duration_ms": 30000,
+    "drain_timeout_ms": 30000,
+    "compression": "off",
+    "size_seed": 6840346605343539201
+  },
+  "conformance_rule": "exact-resource",
+  "conformance": "Every sent stream settles, receives its ordered application acknowledgement, and is received with exact application-byte totals and zero failures; each transfer is a sequence of hash-proved segments assembled by original_hash before the whole is counted."
+}

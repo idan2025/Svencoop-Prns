@@ -1,0 +1,674 @@
+use alloc::vec::Vec;
+
+use crate::engine::InstantMillis;
+use crate::interfaces::InterfaceId;
+use crate::lemire_index::HeapLemireIndex;
+use crate::routing::announce::defaults::{
+    ANNOUNCE_ONE_SHOT_INITIAL_EMISSION_COUNT, ANNOUNCE_WITH_RETRY_INITIAL_EMISSION_COUNT,
+};
+use crate::routing::announce::schedule::{
+    EchoOutcome, ScheduleCancellation, ScheduleOutcome, ScheduledAnnounce, ScheduledAnnounceQueue,
+};
+#[cfg(feature = "std")]
+use crate::routing::temporal_index::HeapDeadlineIndex;
+use crate::wire::DestinationHash;
+
+#[derive(Debug, Default)]
+pub struct HeapScheduledAnnounceQueue {
+    destination: Vec<DestinationHash>,
+    due_at: Vec<InstantMillis>,
+    source_interface: Vec<InterfaceId>,
+    hops: Vec<u8>,
+    our_emission_count: Vec<u8>,
+    peer_emission_count: Vec<u8>,
+    directed_to: Vec<Option<InterfaceId>>,
+    held: Vec<ScheduledAnnounce>,
+    earliest_due: Option<InstantMillis>,
+    index: HeapLemireIndex,
+    #[cfg(feature = "std")]
+    due_index: HeapDeadlineIndex,
+}
+
+impl HeapScheduledAnnounceQueue {
+    fn row(&self, i: usize) -> ScheduledAnnounce {
+        ScheduledAnnounce {
+            destination: self.destination[i],
+            due_at: self.due_at[i],
+            source_interface: self.source_interface[i],
+            hops: self.hops[i],
+            our_emission_count: self.our_emission_count[i],
+            peer_emission_count: self.peer_emission_count[i],
+            directed_to: self.directed_to[i],
+        }
+    }
+
+    fn push_row(&mut self, entry: ScheduledAnnounce) {
+        let row = self.destination.len();
+        self.destination.push(entry.destination);
+        self.due_at.push(entry.due_at);
+        self.source_interface.push(entry.source_interface);
+        self.hops.push(entry.hops);
+        self.our_emission_count.push(entry.our_emission_count);
+        self.peer_emission_count.push(entry.peer_emission_count);
+        self.directed_to.push(entry.directed_to);
+        self.index.insert(row, &self.destination);
+        #[cfg(feature = "std")]
+        {
+            let due_at = &self.due_at;
+            self.due_index
+                .insert(row, Some(entry.due_at), |row| due_at.get(row).copied());
+        }
+    }
+
+    fn swap_remove_row(&mut self, i: usize) {
+        if i >= self.destination.len() {
+            return;
+        }
+        let last = self.destination.len() - 1;
+        self.index.remove_slot(i, &self.destination);
+        if i != last {
+            self.index.repoint_slot(last, i, &self.destination);
+        }
+        #[cfg(feature = "std")]
+        {
+            let due_at = &self.due_at;
+            self.due_index
+                .swap_remove(i, last, |row| due_at.get(row).copied());
+        }
+        self.destination.swap_remove(i);
+        self.due_at.swap_remove(i);
+        self.source_interface.swap_remove(i);
+        self.hops.swap_remove(i);
+        self.our_emission_count.swap_remove(i);
+        self.peer_emission_count.swap_remove(i);
+        self.directed_to.swap_remove(i);
+    }
+
+    fn set_due_at(&mut self, i: usize, due_at: InstantMillis) {
+        self.due_at[i] = due_at;
+        #[cfg(feature = "std")]
+        {
+            let deadlines = &self.due_at;
+            self.due_index
+                .update(i, Some(due_at), |row| deadlines.get(row).copied());
+        }
+    }
+
+    #[cfg(feature = "std")]
+    fn first_due(&mut self, now: InstantMillis) -> Option<usize> {
+        let row_count = self.due_at.len();
+        let due_at = &self.due_at;
+        self.due_index
+            .first_due(row_count, now, |row| due_at.get(row).copied())
+    }
+
+    #[cfg(feature = "std")]
+    fn prefers_linear_due_cull(&mut self, now: InstantMillis) -> bool {
+        let row_count = self.due_at.len();
+        let due_at = &self.due_at;
+        self.due_index
+            .prefers_linear_cull(row_count, now, |row| due_at.get(row).copied())
+    }
+
+    fn upsert(
+        &mut self,
+        destination: DestinationHash,
+        due_at: InstantMillis,
+        source_interface: InterfaceId,
+        hops: u8,
+        directed_to: Option<InterfaceId>,
+        our_emission_count: u8,
+    ) -> ScheduleOutcome {
+        if let Some(i) = self.index.get(&destination, &self.destination) {
+            self.set_due_at(i, due_at);
+            self.source_interface[i] = source_interface;
+            self.hops[i] = hops;
+            self.our_emission_count[i] = our_emission_count;
+            self.peer_emission_count[i] = 0;
+            self.directed_to[i] = directed_to;
+            self.refresh_earliest();
+            ScheduleOutcome::Updated
+        } else {
+            self.push_row(ScheduledAnnounce {
+                destination,
+                due_at,
+                source_interface,
+                hops,
+                our_emission_count,
+                peer_emission_count: 0,
+                directed_to,
+            });
+            self.refresh_earliest();
+            ScheduleOutcome::Inserted
+        }
+    }
+
+    fn refresh_earliest(&mut self) {
+        #[cfg(feature = "std")]
+        {
+            let row_count = self.due_at.len();
+            let due_at = &self.due_at;
+            self.earliest_due = self
+                .due_index
+                .earliest_exact(row_count, |row| due_at.get(row).copied());
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            self.earliest_due = self.due_at.iter().copied().min();
+        }
+    }
+
+    pub fn held_count(&self) -> usize {
+        self.held.len()
+    }
+
+    fn held_contains(&self, destination: DestinationHash) -> bool {
+        self.held
+            .iter()
+            .any(|entry| entry.destination == destination)
+    }
+
+    fn active_directed_index(&self, destination: DestinationHash) -> Option<usize> {
+        self.index
+            .get(&destination, &self.destination)
+            .filter(|index| self.directed_to[*index].is_some())
+    }
+
+    fn park_displaced_flood(&mut self, destination: DestinationHash) {
+        let Some(i) = self.index.get(&destination, &self.destination) else {
+            return;
+        };
+        if self.directed_to[i].is_some() {
+            return;
+        }
+        let flood = self.row(i);
+        self.swap_remove_row(i);
+        self.held.push(flood);
+    }
+
+    fn clear_held(&mut self, destination: DestinationHash) {
+        if let Some(j) = self
+            .held
+            .iter()
+            .position(|entry| entry.destination == destination)
+        {
+            self.held.swap_remove(j);
+        }
+    }
+
+    fn restore_orphaned_held(&mut self) {
+        let mut j = 0;
+        while j < self.held.len() {
+            let destination = self.held[j].destination;
+            if self.active_directed_index(destination).is_none() {
+                let flood = self.held.swap_remove(j);
+                self.push_row(flood);
+            } else {
+                j += 1;
+            }
+        }
+    }
+}
+
+impl ScheduledAnnounceQueue for HeapScheduledAnnounceQueue {
+    fn scheduled_count(&self) -> usize {
+        self.due_at.len()
+    }
+    fn schedule(
+        &mut self,
+        destination: DestinationHash,
+        due_at: InstantMillis,
+        source_interface: InterfaceId,
+        hops: u8,
+    ) -> ScheduleOutcome {
+        self.clear_held(destination);
+        self.upsert(
+            destination,
+            due_at,
+            source_interface,
+            hops,
+            None,
+            ANNOUNCE_WITH_RETRY_INITIAL_EMISSION_COUNT,
+        )
+    }
+    fn schedule_directed(
+        &mut self,
+        destination: DestinationHash,
+        due_at: InstantMillis,
+        target: InterfaceId,
+        hops: u8,
+    ) -> ScheduleOutcome {
+        let replacing = self.index.get(&destination, &self.destination).is_some();
+        self.park_displaced_flood(destination);
+        let outcome = self.upsert(
+            destination,
+            due_at,
+            target,
+            hops,
+            Some(target),
+            ANNOUNCE_WITH_RETRY_INITIAL_EMISSION_COUNT,
+        );
+        if replacing && outcome == ScheduleOutcome::Inserted {
+            ScheduleOutcome::Updated
+        } else {
+            outcome
+        }
+    }
+    fn schedule_shared_client(
+        &mut self,
+        destination: DestinationHash,
+        due_at: InstantMillis,
+        source_interface: InterfaceId,
+        hops: u8,
+    ) -> ScheduleOutcome {
+        self.clear_held(destination);
+        self.upsert(
+            destination,
+            due_at,
+            source_interface,
+            hops,
+            None,
+            ANNOUNCE_ONE_SHOT_INITIAL_EMISSION_COUNT,
+        )
+    }
+    fn schedule_directed_shared_client(
+        &mut self,
+        destination: DestinationHash,
+        due_at: InstantMillis,
+        target: InterfaceId,
+        hops: u8,
+    ) -> ScheduleOutcome {
+        let replacing = self.index.get(&destination, &self.destination).is_some();
+        self.park_displaced_flood(destination);
+        let outcome = self.upsert(
+            destination,
+            due_at,
+            target,
+            hops,
+            Some(target),
+            ANNOUNCE_ONE_SHOT_INITIAL_EMISSION_COUNT,
+        );
+        if replacing && outcome == ScheduleOutcome::Inserted {
+            ScheduleOutcome::Updated
+        } else {
+            outcome
+        }
+    }
+    fn cancel(&mut self, destination: &DestinationHash) -> ScheduleCancellation {
+        let active_removed = if let Some(index) = self.index.get(destination, &self.destination) {
+            self.swap_remove_row(index);
+            true
+        } else {
+            false
+        };
+        let parked_removed = if let Some(index) = self
+            .held
+            .iter()
+            .position(|entry| entry.destination == *destination)
+        {
+            self.held.swap_remove(index);
+            true
+        } else {
+            false
+        };
+        if active_removed {
+            self.refresh_earliest();
+        }
+        ScheduleCancellation {
+            active_removed,
+            parked_removed,
+        }
+    }
+    fn drain_due(&mut self, now: InstantMillis) -> usize {
+        #[cfg(feature = "std")]
+        {
+            let mut removed = 0;
+            if self.prefers_linear_due_cull(now) {
+                self.due_index.invalidate();
+                let mut i = 0;
+                while i < self.due_at.len() {
+                    if self.due_at[i] <= now {
+                        self.swap_remove_row(i);
+                        removed += 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+            } else {
+                while let Some(i) = self.first_due(now) {
+                    self.swap_remove_row(i);
+                    removed += 1;
+                }
+            }
+            self.refresh_earliest();
+            removed
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            let mut removed = 0;
+            let mut i = 0;
+            while i < self.due_at.len() {
+                if self.due_at[i] <= now {
+                    self.swap_remove_row(i);
+                    removed += 1;
+                } else {
+                    i += 1;
+                }
+            }
+            self.refresh_earliest();
+            removed
+        }
+    }
+    fn advance_due_retransmits(
+        &mut self,
+        now: InstantMillis,
+        interval_ms: u64,
+        max_our_emission_count: u8,
+    ) -> usize {
+        #[cfg(feature = "std")]
+        {
+            if let Some(next_due) = now
+                .0
+                .checked_add(interval_ms)
+                .filter(|_| interval_ms != 0)
+                .map(InstantMillis)
+            {
+                if self.prefers_linear_due_cull(now) {
+                    self.due_index.invalidate();
+                } else {
+                    let mut completed = 0;
+                    while let Some(i) = self.first_due(now) {
+                        if self.directed_to[i].is_some() && self.held_contains(self.destination[i])
+                        {
+                            self.swap_remove_row(i);
+                            completed += 1;
+                            continue;
+                        }
+                        let count = self.our_emission_count[i].saturating_add(1);
+                        self.our_emission_count[i] = count;
+                        if count >= max_our_emission_count {
+                            self.swap_remove_row(i);
+                            completed += 1;
+                            continue;
+                        }
+                        self.set_due_at(i, next_due);
+                    }
+                    self.restore_orphaned_held();
+                    self.refresh_earliest();
+                    return completed;
+                }
+            }
+        }
+        let mut completed = 0;
+        let mut i = 0;
+        while i < self.due_at.len() {
+            if self.due_at[i].0 <= now.0 {
+                if self.directed_to[i].is_some() && self.held_contains(self.destination[i]) {
+                    self.swap_remove_row(i);
+                    completed += 1;
+                    continue;
+                }
+                let count = self.our_emission_count[i].saturating_add(1);
+                self.our_emission_count[i] = count;
+                if count >= max_our_emission_count {
+                    self.swap_remove_row(i);
+                    completed += 1;
+                    continue;
+                }
+                self.set_due_at(i, InstantMillis(now.0.saturating_add(interval_ms)));
+            }
+            i += 1;
+        }
+        self.restore_orphaned_held();
+        self.refresh_earliest();
+        completed
+    }
+    fn absorb_echo(
+        &mut self,
+        destination: &DestinationHash,
+        received_hops: u8,
+        now: InstantMillis,
+        max_peer_emission_count: u8,
+    ) -> EchoOutcome {
+        let Some(i) = self.index.get(destination, &self.destination) else {
+            return EchoOutcome::NoPendingEntry;
+        };
+        let hops_below = received_hops.saturating_sub(1);
+        let entry_hops = self.hops[i];
+        let emitted = self.our_emission_count[i] > 0;
+        if hops_below == entry_hops {
+            let peers = self.peer_emission_count[i].saturating_add(1);
+            self.peer_emission_count[i] = peers;
+            if emitted && peers >= max_peer_emission_count {
+                self.swap_remove_row(i);
+                self.refresh_earliest();
+                return EchoOutcome::RetransmitCancelled;
+            }
+            return EchoOutcome::PeerEmissionCounted;
+        }
+        if hops_below == entry_hops.saturating_add(1) && emitted && now.0 < self.due_at[i].0 {
+            self.swap_remove_row(i);
+            self.refresh_earliest();
+            return EchoOutcome::RetransmitCancelled;
+        }
+        EchoOutcome::HopsUnrelated
+    }
+    fn earliest_due_at(&self) -> Option<InstantMillis> {
+        debug_assert_eq!(
+            self.earliest_due,
+            self.due_at.iter().copied().min(),
+            "earliest_due cache desynced from due_at column"
+        );
+        self.earliest_due
+    }
+    fn iter(&self) -> impl Iterator<Item = ScheduledAnnounce> + '_ {
+        (0..self.scheduled_count()).map(move |i| self.row(i))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(unused_must_use)]
+
+    use super::*;
+
+    fn dest(byte: u8) -> DestinationHash {
+        DestinationHash::new([byte; 16])
+    }
+    fn dest_n(value: u64) -> DestinationHash {
+        let mut bytes = [0; 16];
+        bytes[..8].copy_from_slice(&value.to_le_bytes());
+        DestinationHash::new(bytes)
+    }
+    fn iface(byte: u8) -> InterfaceId {
+        InterfaceId::new([byte; 8])
+    }
+
+    #[test]
+    fn growable_queue_reports_insert_and_update() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        assert_eq!(
+            pending.schedule(dest(1), InstantMillis(300), iface(0xAA), 9),
+            ScheduleOutcome::Inserted,
+        );
+        assert_eq!(
+            pending.schedule(dest(1), InstantMillis(200), iface(0xBB), 1),
+            ScheduleOutcome::Updated,
+        );
+        for value in 2..=200 {
+            assert_eq!(
+                pending.schedule(dest_n(value), InstantMillis(value), iface(0xCC), 2),
+                ScheduleOutcome::Inserted,
+            );
+        }
+        assert_eq!(pending.scheduled_count(), 200);
+    }
+
+    #[test]
+    fn cancellation_removes_active_and_parked_work_and_recalculates_earliest() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        assert_eq!(
+            pending.schedule(dest(1), InstantMillis(100), iface(0xAA), 2),
+            ScheduleOutcome::Inserted,
+        );
+        assert_eq!(
+            pending.schedule(dest(2), InstantMillis(200), iface(0xAA), 2),
+            ScheduleOutcome::Inserted,
+        );
+        assert_eq!(
+            pending.schedule_directed(dest(1), InstantMillis(50), iface(0xBB), 2),
+            ScheduleOutcome::Updated,
+        );
+        assert_eq!(pending.earliest_due_at(), Some(InstantMillis(50)));
+
+        assert_eq!(
+            pending.cancel(&dest(1)),
+            ScheduleCancellation {
+                active_removed: true,
+                parked_removed: true,
+            },
+        );
+        assert_eq!(pending.earliest_due_at(), Some(InstantMillis(200)));
+        assert_eq!(
+            pending
+                .iter()
+                .map(|entry| entry.destination)
+                .collect::<std::vec::Vec<_>>(),
+            std::vec![dest(2)],
+        );
+        assert_eq!(pending.cancel(&dest(1)), ScheduleCancellation::NOT_FOUND);
+    }
+
+    #[test]
+    fn grows_past_a_fixed_cap_upserts_and_drains() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        for n in 0..200u8 {
+            pending.schedule(dest(n), InstantMillis(100 + n as u64), iface(0xAA), 1);
+        }
+        assert_eq!(pending.scheduled_count(), 200);
+        assert_eq!(pending.earliest_due_at(), Some(InstantMillis(100)));
+
+        pending.schedule(dest(0), InstantMillis(50), iface(0xBB), 1);
+        assert_eq!(pending.scheduled_count(), 200);
+        assert_eq!(pending.earliest_due_at(), Some(InstantMillis(50)));
+
+        assert_eq!(pending.drain_due(InstantMillis(10_000)), 200);
+        assert_eq!(pending.scheduled_count(), 0);
+    }
+
+    #[test]
+    fn drain_due_uses_the_due_boundary_and_reports_removed_count() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        pending.schedule(dest(1), InstantMillis(99), iface(0xAA), 1);
+        pending.schedule(dest(2), InstantMillis(100), iface(0xAA), 1);
+        pending.schedule(dest(3), InstantMillis(101), iface(0xAA), 1);
+
+        assert_eq!(pending.drain_due(InstantMillis(100)), 2);
+        assert_eq!(pending.scheduled_count(), 1);
+        assert_eq!(pending.iter().next().unwrap().destination, dest(3));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn dense_due_sets_scan_then_rebuild_the_deadline_heap() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        for value in 0..5_000 {
+            pending.schedule(dest_n(value), InstantMillis(100), iface(0xAA), 1);
+        }
+
+        assert_eq!(pending.drain_due(InstantMillis(100)), 5_000);
+        assert_eq!(pending.earliest_due_at(), None);
+        pending.schedule(dest_n(5_001), InstantMillis(200), iface(0xBB), 1);
+        assert_eq!(pending.earliest_due_at(), Some(InstantMillis(200)));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn dense_retransmits_rearm_then_retire_without_reprocessing_rows() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        for value in 0..5_000 {
+            pending.schedule(dest_n(value), InstantMillis(100), iface(0xAA), 1);
+        }
+
+        assert_eq!(
+            pending.advance_due_retransmits(InstantMillis(100), 5_500, 2),
+            0
+        );
+        assert_eq!(pending.earliest_due_at(), Some(InstantMillis(5_600)));
+        assert_eq!(
+            pending.advance_due_retransmits(InstantMillis(5_600), 5_500, 2),
+            5_000
+        );
+        assert_eq!(pending.earliest_due_at(), None);
+    }
+
+    #[test]
+    fn advance_re_arms_then_completes_at_the_emission_cap() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        pending.schedule(dest(1), InstantMillis(100), iface(0xAA), 5);
+
+        assert_eq!(
+            pending.advance_due_retransmits(InstantMillis(100), 5_500, 2),
+            0
+        );
+        let entry = pending.iter().next().unwrap();
+        assert_eq!(entry.our_emission_count, 1);
+        assert_eq!(entry.due_at, InstantMillis(5_600));
+
+        assert_eq!(
+            pending.advance_due_retransmits(InstantMillis(5_600), 5_500, 2),
+            1
+        );
+        assert_eq!(pending.scheduled_count(), 0);
+    }
+
+    #[test]
+    fn absorb_echo_counts_then_cancels_like_the_fixed_queue() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        pending.schedule(dest(1), InstantMillis(100), iface(0xAA), 5);
+        pending.advance_due_retransmits(InstantMillis(100), 5_500, 2);
+
+        assert_eq!(
+            pending.absorb_echo(&dest(1), 6, InstantMillis(200), 2),
+            EchoOutcome::PeerEmissionCounted
+        );
+        assert_eq!(
+            pending.absorb_echo(&dest(1), 7, InstantMillis(300), 2),
+            EchoOutcome::RetransmitCancelled
+        );
+        assert_eq!(pending.scheduled_count(), 0);
+    }
+
+    #[test]
+    fn a_directed_answer_parks_then_restores_a_displaced_flood() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        pending.schedule(dest(1), InstantMillis(100), iface(0xAA), 2);
+        pending.schedule_directed(dest(1), InstantMillis(200), iface(0xBB), 2);
+        assert_eq!(pending.held_count(), 1);
+        assert_eq!(
+            pending.iter().next().unwrap().directed_to,
+            Some(iface(0xBB))
+        );
+
+        assert_eq!(
+            pending.advance_due_retransmits(InstantMillis(200), 5_500, 2),
+            1
+        );
+        assert_eq!(pending.held_count(), 0);
+        let restored = pending.iter().next().unwrap();
+        assert_eq!(restored.directed_to, None);
+        assert_eq!(restored.due_at, InstantMillis(100));
+    }
+
+    #[test]
+    fn a_fresher_flood_supersedes_a_parked_held_entry() {
+        let mut pending = HeapScheduledAnnounceQueue::default();
+        pending.schedule(dest(1), InstantMillis(100), iface(0xAA), 2);
+        pending.schedule_directed(dest(1), InstantMillis(200), iface(0xBB), 2);
+        assert_eq!(pending.held_count(), 1);
+
+        pending.schedule(dest(1), InstantMillis(300), iface(0xCC), 3);
+        assert_eq!(pending.held_count(), 0);
+        assert_eq!(pending.iter().next().unwrap().directed_to, None);
+    }
+}
