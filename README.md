@@ -94,9 +94,9 @@ libraries are required for the TCP / Wi-Fi-auto features the bridge uses.
 
 | Platform | Launcher | SC dedicated server binary | Notes |
 | --- | --- | --- | --- |
-| **Linux** | `run.sh` | `svends_run` | Auto-detects Steam install paths. |
-| **macOS** | `run.command` | `svends_run` | Double-click in Finder. Searches `~/Library/Application Support/Steam`. |
-| **Windows** | `run.bat` | `svends.exe` | Double-click in Explorer. Searches `C:\Program Files (x86)\Steam`. |
+| **Linux** | `run.sh` | `svends_run` | Auto-detects Steam install paths; if none found, downloads the DS via steamcmd. Installs 32-bit libs (`lib32z1`/`lib32gcc-s1`/`lib32stdc++6`) if missing. |
+| **macOS** | `run.command` | *(no native DS)* | No native Sven Co-op dedicated server exists for macOS. Run the host side (menus 1+2) on Linux/a VM/Docker or under Wine; macOS can still run the bridge client (menu 3). |
+| **Windows** | `run.bat` | `svends.exe` | Auto-detects Steam install paths; if none found, downloads the DS via steamcmd. |
 
 On macOS, the first time you run `run.command` from Finder you may need to
 right-click → Open to bypass Gatekeeper. On all platforms, the launcher
@@ -142,6 +142,16 @@ The menu:
 > Tip: if you're sitting next to the Sven Co-op server you don't need the
 > bridge at all — just `connect localhost:27015` directly. The bridge earns
 > its keep when players are on *other* machines or networks.
+
+> **No Sven Co-op install or Steam client required.** If menu 1 can't find a
+> dedicated server, it offers to **download one via steamcmd** (anonymous login,
+> app 276060 — no Steam account, no Steam client, ~2.7 GB) into a path you pick
+> (default `./svends`, next to the launcher), then starts that server. So the
+> bundle is self-contained: it runs on a headless Windows or Linux box with no
+> Steam installed. On Linux it also bootstraps steamcmd itself and checks for the
+> 32-bit runtime libs, installing them via `apt-get` if it can. A previously
+> pulled server is reused automatically on the next run. (macOS has no native
+> dedicated server — see Platform notes above.)
 
 ### Remote players
 

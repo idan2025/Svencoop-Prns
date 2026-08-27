@@ -1,6 +1,7 @@
 @echo off
 REM sc-rns-bridge launcher for Windows.
 REM Run: run.bat   (double-click works too)
+setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 
@@ -16,16 +17,27 @@ if not exist "%BIN%" (
     )
 )
 
-REM Try common Steam install locations for the Sven Co-op dedicated server.
+REM Try to locate the Sven Co-op dedicated server.
+REM Order: bundle-local .\svends, last-used path in .svends_path, Steam paths.
 set SVENDS=
-for %%P in (
-    "%ProgramFiles(x86)%\Steam\steamapps\common\Sven Co-op\svends.exe"
-    "%ProgramFiles%\Steam\steamapps\common\Sven Co-op\svends.exe"
-    "C:\Program Files (x86)\Steam\steamapps\common\Sven Co-op\svends.exe"
-    "C:\Program Files\Steam\steamapps\common\Sven Co-op\svends.exe"
-    "%USERPROFILE%\Steam\steamapps\common\Sven Co-op\svends.exe"
-) do (
-    if exist %%P set SVENDS=%%~P
+if exist ".\svends\svends.exe" set "SVENDS=.\svends\svends.exe"
+if "!SVENDS!"=="" (
+    if exist ".svends_path" (
+        set PREV=
+        set /p PREV=<.svends_path
+        if exist "!PREV!\svends.exe" set "SVENDS=!PREV!\svends.exe"
+    )
+)
+if "!SVENDS!"=="" (
+    for %%P in (
+        "%ProgramFiles(x86)%\Steam\steamapps\common\Sven Co-op\svends.exe"
+        "%ProgramFiles%\Steam\steamapps\common\Sven Co-op\svends.exe"
+        "C:\Program Files (x86)\Steam\steamapps\common\Sven Co-op\svends.exe"
+        "C:\Program Files\Steam\steamapps\common\Sven Co-op\svends.exe"
+        "%USERPROFILE%\Steam\steamapps\common\Sven Co-op\svends.exe"
+    ) do (
+        if exist %%P set "SVENDS=%%~P"
+    )
 )
 
 echo ==================================
@@ -47,116 +59,175 @@ pause
 exit /b 1
 
 :scserver
-if "%SVENDS%"=="" (
+REM Windows always has a Sven Co-op dedicated server build (app 276060).
+if "!SVENDS!"=="" (
     echo.
-    echo Could not find svends.exe in the usual Steam install paths.
-    echo If Sven Co-op is installed elsewhere, enter the full path.
+    echo No Sven Co-op dedicated server found.
+    set DL=
+    set /p DL=Download it via steamcmd now? [y/N]:
+    if /i not "!DL!"=="y" (
+        echo Aborting.
+        pause
+        exit /b 1
+    )
+    call :ensure_steamcmd
+    if errorlevel 1 (
+        echo steamcmd setup failed.
+        pause
+        exit /b 1
+    )
+    set INSTALL_DIR=
+    set /p INSTALL_DIR=Install path for the dedicated server [.\svends]:
+    if "!INSTALL_DIR!"=="" set "INSTALL_DIR=.\svends"
     echo.
-    set /p SVENDS=Full path to svends.exe:
+    echo Downloading Sven Co-op dedicated server (app 276060) into:
+    echo   !INSTALL_DIR!
+    echo This is ~2.7 GB. Please wait...
+    echo.
+    steamcmd\steamcmd.exe +force_install_dir "!INSTALL_DIR!" +login anonymous +app_update 276060 validate +quit
+    if errorlevel 1 (
+        echo.
+        echo steamcmd exited with an error. The download may have failed.
+        echo Check the output above and re-run.
+        pause
+        exit /b 1
+    )
+    set "SVENDS=!INSTALL_DIR!\svends.exe"
+    if not exist "!SVENDS!" (
+        echo Download finished but !SVENDS! was not found.
+        pause
+        exit /b 1
+    )
+    echo !INSTALL_DIR!>.svends_path
 )
-if "%SVENDS%"=="" (
-    echo No path given. Aborting.
-    pause
-    exit /b 1)
-if not exist "%SVENDS%" (
-    echo File not found: %SVENDS%
-    pause
-    exit /b 1
-)
-for %%I in ("%SVENDS%") do set SVENDS_DIR=%%~dpI
+for %%I in ("!SVENDS!") do set "SVENDS_DIR=%%~dpI"
 echo.
-echo Found dedicated server: %SVENDS%
+echo Found dedicated server: !SVENDS!
+set sc_port=
 set /p sc_port=UDP port [27015]:
-if "%sc_port%"=="" set sc_port=27015
+if "!sc_port!"=="" set sc_port=27015
+set maxplayers=
 set /p maxplayers=Max players [8]:
-if "%maxplayers%"=="" set maxplayers=8
+if "!maxplayers!"=="" set maxplayers=8
+set map=
 set /p map=Starting map [svencoop1]:
-if "%map%"=="" set map=svencoop1
+if "!map!"=="" set map=svencoop1
 
 REM Pre-create soundcache files for ALL maps in the maps directory.
 REM The SC dedicated server fails to generate these on-the-fly, causing
 REM "failed to transmit file" errors that disconnect clients. Creating
 REM empty files for every .bsp means map changes mid-game won't break either.
-set SOUNDCACHE_DIR=%SVENDS_DIR%svencoop\maps\soundcache
+set "SOUNDCACHE_DIR=%SVENDS_DIR%svencoop\maps\soundcache"
 if not exist "%SOUNDCACHE_DIR%" mkdir "%SOUNDCACHE_DIR%"
 set created=0
 for %%F in ("%SVENDS_DIR%svencoop\maps\*.bsp") do (
-    set mapname=%%~nF
     if not exist "%SOUNDCACHE_DIR%\%%~nF.txt" (
         type nul > "%SOUNDCACHE_DIR%\%%~nF.txt"
         set /a created+=1
     )
 )
-if %created% GTR 0 echo Pre-created %created% empty soundcache file(s) in %SOUNDCACHE_DIR%
+if !created! GTR 0 echo Pre-created !created! empty soundcache file(s) in %SOUNDCACHE_DIR%
 
 echo.
-echo Starting Sven Co-op dedicated server on port %sc_port%...
-echo Map: %map%   Max players: %maxplayers%
+echo Starting Sven Co-op dedicated server on port !sc_port!...
+echo Map: !map!   Max players: !maxplayers!
 echo Press Ctrl-C to stop.
 echo.
 cd /d "%SVENDS_DIR%"
-svends.exe -port %sc_port% +maxplayers %maxplayers% +map %map%
+svends.exe -port !sc_port! +maxplayers !maxplayers! +map !map!
 pause
 exit /b
 
+:ensure_steamcmd
+if exist "steamcmd\steamcmd.exe" exit /b 0
+if not exist steamcmd mkdir steamcmd
+echo Downloading steamcmd...
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile 'steamcmd.zip' -UseBasicParsing } catch { Invoke-WebRequest -Uri 'http://media.steampowered.com/installer/steamcmd.zip' -OutFile 'steamcmd.zip' -UseBasicParsing }"
+if errorlevel 1 (
+    echo Failed to download steamcmd.
+    exit /b 1
+)
+powershell -NoProfile -Command "Expand-Archive -Path 'steamcmd.zip' -DestinationPath 'steamcmd' -Force"
+if errorlevel 1 (
+    echo Failed to extract steamcmd.
+    if exist steamcmd.zip del steamcmd.zip
+    exit /b 1
+)
+if exist steamcmd.zip del steamcmd.zip
+if not exist "steamcmd\steamcmd.exe" (
+    echo steamcmd.exe not found after extraction.
+    exit /b 1
+)
+exit /b 0
+
 :server
+set sc_host=
 set /p sc_host=Sven Co-op server host [127.0.0.1]:
-if "%sc_host%"=="" set sc_host=127.0.0.1
+if "!sc_host!"=="" set sc_host=127.0.0.1
+set sc_port=
 set /p sc_port=Sven Co-op server UDP port [27015]:
-if "%sc_port%"=="" set sc_port=27015
+if "!sc_port!"=="" set sc_port=27015
 echo.
 echo Interface: how should this node reach other nodes?
 echo  a) TCP server (bind a public relay, e.g. 0.0.0.0:4234)
 echo  b) Wi-Fi/LAN auto-discovery (no internet needed)
 echo  c) Both
+set iface=
 set /p iface=Choose [a/b/c]:
 set tcp_flag=
 set auto_flag=
-if /i "%iface%"=="a" (
+if /i "!iface!"=="a" (
+    set tcp=
     set /p tcp=TCP bind address [0.0.0.0:4234]:
-    if "%tcp%"=="" set tcp=0.0.0.0:4234
-    set tcp_flag=--tcp %tcp%
+    if "!tcp!"=="" set tcp=0.0.0.0:4234
+    set tcp_flag=--tcp !tcp!
 )
-if /i "%iface%"=="b" set auto_flag=--auto
-if /i "%iface%"=="c" (
+if /i "!iface!"=="b" set auto_flag=--auto
+if /i "!iface!"=="c" (
+    set tcp=
     set /p tcp=TCP bind address [0.0.0.0:4234]:
-    if "%tcp%"=="" set tcp=0.0.0.0:4234
-    set tcp_flag=--tcp %tcp%
+    if "!tcp!"=="" set tcp=0.0.0.0:4234
+    set tcp_flag=--tcp !tcp!
     set auto_flag=--auto
 )
+set ann=
 set /p ann=Announce interval seconds [15]:
-if "%ann%"=="" set ann=15
+if "!ann!"=="" set ann=15
 echo.
 echo Starting bridge server. Press Ctrl-C to stop.
 echo Players use the printed server_hash with --server-hash, or just run a client.
 echo.
-%BIN% server --sc-host %sc_host% --sc-port %sc_port% %tcp_flag% %auto_flag% --announce-interval %ann%
+%BIN% server --sc-host !sc_host! --sc-port !sc_port! !tcp_flag! !auto_flag! --announce-interval !ann!
 pause
 exit /b
 
 :client
+set listen=
 set /p listen=Local UDP port for GoldSrc client to connect to [27015]:
-if "%listen%"=="" set listen=27015
+if "!listen!"=="" set listen=27015
 echo.
 echo Interface: how should this node reach the bridge server?
 echo  a) TCP client (connect to a public relay, e.g. example.com:4234)
 echo  b) Wi-Fi/LAN auto-discovery (no internet needed)
+set iface=
 set /p iface=Choose [a/b]:
 set tcp_flag=
 set auto_flag=
-if /i "%iface%"=="a" (
+if /i "!iface!"=="a" (
+    set tcp=
     set /p tcp=Bridge server host:port (e.g. 1.2.3.4:4234):
-    set tcp_flag=--tcp %tcp%
+    set tcp_flag=--tcp !tcp!
 )
-if /i "%iface%"=="b" set auto_flag=--auto
+if /i "!iface!"=="b" set auto_flag=--auto
+set hash=
 set /p hash=Server destination hash (32 hex chars, blank to auto-discover):
 set hash_flag=
-if not "%hash%"=="" set hash_flag=--server-hash %hash%
+if not "!hash!"=="" set hash_flag=--server-hash !hash!
 echo.
-echo Starting bridge client. Point your Sven Co-op client at localhost:%listen%
+echo Starting bridge client. Point your Sven Co-op client at localhost:!listen!
 echo Press Ctrl-C to stop.
 echo.
-%BIN% client --listen-port %listen% %tcp_flag% %auto_flag% %hash_flag%
+%BIN% client --listen-port !listen! !tcp_flag! !auto_flag! !hash_flag!
 pause
 exit /b
 

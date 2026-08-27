@@ -2,3 +2,9 @@
 *.identity
 *.lock
 !Cargo.lock
+
+# Launcher download artifacts (runtime, not source): the steamcmd bootstrap
+# cache, a pulled Sven Co-op dedicated server, and the remembered install path.
+/steamcmd/
+/svends/
+/.svends_path
