@@ -8,3 +8,10 @@
 /steamcmd/
 /svends/
 /.svends_path
+
+# GUI (Tauri) build artifacts.
+/gui/src-tauri/target/
+/gui/src-tauri/gen/
+
+# Controller crate build artifacts.
+/controller/target/

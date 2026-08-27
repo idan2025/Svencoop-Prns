@@ -1,0 +1,30 @@
+[package]
+name = "sc-rns-controller"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+description = "Headless platform core for the Sven Co-op over Reticulum GUI: orchestrates the bridge, the dedicated server, steamcmd, and game launch"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+sc-rns-bridge = { path = ".." }
+personal-rns = { path = "../vendor/personal-rns", features = ["tokio-host", "tcp", "wifi-auto"] }
+prns-core = { path = "../vendor/prns-core" }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "net", "process", "fs", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+flate2 = "1"
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+dirs = "5"
+anyhow = "1"
+tracing = "0.1"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "net", "process", "fs", "io-util"] }
+tempfile = "3"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

@@ -280,6 +280,48 @@ If you still see `NoRouteToDestination`:
    `--server-hash <32-hex-chars>` (the host shares the hash printed at server
    startup) for the most reliable connection.
 
+## GUI launcher (prototype)
+
+A desktop GUI unifies the three functions in one window: start/stop the
+dedicated server, the bridge server, and the bridge client (with restart);
+browse discovered `sven-coop/server` servers live; edit Reticulum interfaces at
+runtime (add/remove TCP + auto + IFAC, rename); and click a server to open the
+Sven Co-op game auto-connected to it.
+
+It's a **Tauri** web UI over a headless Rust core:
+
+- **`controller/`** (`sc-rns-controller`) — the platform core. Owns a
+  `BridgeSession`, a `DsManager` (find/pull/start/stop + soundcache), a
+  Rust-native `SteamcmdRunner`, and a `GameLauncher`. **No Tauri/webview
+  dependency** — builds and tests headless (e.g. on a server with no desktop).
+- **`gui/`** (`sc-rns-gui`) — a thin Tauri v2 shell. Every `#[tauri::command]`
+  is one user action delegating to `BridgeController`. The frontend is a single
+  static page (`gui/dist/index.html` + vanilla JS/CSS, no bundler) that polls
+  `get_state` every couple of seconds for the server browser, interfaces, and
+  DS status.
+
+### Build the GUI
+
+The Tauri shell needs a webview stack, so build it on a desktop machine
+(not the headless server):
+
+```bash
+# Linux prerequisites (Debian/Ubuntu):
+sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev build-essential
+# then:
+cd gui
+cargo tauri build        # release bundle
+# or, for dev:
+cargo tauri dev
+```
+
+On Windows and macOS the webview ships with the OS. Run the produced app,
+start a bridge server + client, see discovered servers in the browser, and
+click **Connect** to launch Sven Co-op joined to the client's localhost port.
+
+> The CLI launchers (`run.sh` / `run.bat` / `run.command`) still work
+> unchanged — the GUI is a frontend over the same in-process bridge core.
+
 ## Architecture notes
 
 - **`src/framing.rs`** — length-prefix framing: splits each GoldSrc datagram
