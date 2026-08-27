@@ -229,12 +229,23 @@ async fn get_state(state: tauri::State<'_, CtrlState>) -> Result<StateSnapshot, 
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            // Bundle dir = the app's data dir (no hardcoded absolute paths).
-            let bundle_dir = app
-                .path()
-                .app_data_dir()
-                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+            // Bundle dir resolution — portable mode first, OS app-data fallback.
+            //
+            // Portable mode: a `sc-rns-data/` folder next to the executable
+            // (or, for an AppImage, next to the .AppImage file via the
+            // APPIMAGE env var / the resolved real path). All mutable state
+            // lives there: settings.json, RNS identities, the steamcmd
+            // bootstrap, and the pulled Sven Co-op dedicated server (~2.74 GB).
+            // This lets the whole release ship as a self-contained archive the
+            // user can drop anywhere (USB stick, Desktop, etc.) and run.
+            //
+            // Fallback: the platform's per-app data dir (Tauri
+            // `app_data_dir`) when the executable's directory isn't writable
+            // (e.g. installed system-wide under /usr/bin), so a system install
+            // still works without polluting the binary directory.
+            let bundle_dir = resolve_bundle_dir(app);
             std::fs::create_dir_all(&bundle_dir).ok();
+            eprintln!("[sc-rns-gui] bundle dir: {}", bundle_dir.display());
             app.manage(CtrlState::new(tokio::sync::Mutex::new(
                 BridgeController::new(bundle_dir.clone()),
             )));
@@ -263,4 +274,87 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// The portable data folder name. Next to the executable (or the .AppImage
+/// file), all mutable state lives here: settings.json, RNS identities, the
+/// steamcmd bootstrap, and the pulled ~2.74 GB Sven Co-op dedicated server.
+const PORTABLE_DIR_NAME: &str = "sc-rns-data";
+
+/// Resolve the bundle dir (where all mutable state lives).
+///
+/// Portable mode: `<exe's dir>/sc-rns-data/`. For an AppImage, the AppImage
+/// file's directory (via `APPIMAGE` env var) — so the data sticks with the
+/// .AppImage across "moves", not the ephemeral mount point. Falls back to the
+/// OS per-app data dir (Tauri `app_data_dir`) only when the exe's directory
+/// isn't writable — e.g. a system install under `/usr/bin` or `/opt`.
+fn resolve_bundle_dir(app: &tauri::App) -> PathBuf {
+    if let Some(portable) = portable_candidate() {
+        // Use portable mode if the folder already exists, or if we can create
+        // it (the exe's dir is writable). System-wide installs fail the create
+        // and fall back to the OS data dir.
+        if portable.exists() {
+            return portable;
+        }
+        if std::fs::create_dir_all(&portable).is_ok() {
+            // Drop a marker so the user knows where their data is.
+            let marker = portable.join("PORTABLE.txt");
+            if !marker.exists() {
+                let _ = std::fs::write(
+                    &marker,
+                    "Sven Co-op over Reticulum — portable data folder.\n\
+                     This folder holds settings.json, RNS identities, the\n\
+                     steamcmd bootstrap, and the pulled Sven Co-op dedicated\n\
+                     server (~2.74 GB). Keep it with the executable.\n",
+                );
+            }
+            return portable;
+        }
+    }
+    // Fallback: the platform's per-app data dir.
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
+}
+
+/// Find the portable data folder candidate: the directory containing the
+/// running executable, or — for an AppImage — the directory containing the
+/// .AppImage file (the `APPIMAGE` env var points at the real .AppImage path,
+/// not the ephemeral squashfs mount).
+fn portable_candidate() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+
+    // AppImage: `APPIMAGE` is the path to the .AppImage file. The current_exe
+    // inside an AppImage points at the AppDir's AppRun, so prefer APPIMAGE to
+    // keep data next to the .AppImage the user actually sees/moves.
+    if let Ok(appimage) = std::env::var("APPIMAGE") {
+        if !appimage.is_empty() {
+            if let Some(d) = PathBuf::from(&appimage).parent() {
+                return Some(d.join(PORTABLE_DIR_NAME));
+            }
+        }
+    }
+    Some(exe_dir.join(PORTABLE_DIR_NAME))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn portable_candidate_is_exe_sibling() {
+        // Not an AppImage in this test, so the candidate is <exe_dir>/sc-rns-data.
+        let exe = std::env::current_exe().unwrap();
+        let candidate = portable_candidate();
+        assert!(candidate.is_some());
+        let c = candidate.unwrap();
+        assert_eq!(c.file_name().unwrap(), PORTABLE_DIR_NAME);
+        assert_eq!(c.parent().unwrap(), exe.parent().unwrap());
+    }
+
+    #[test]
+    fn portable_dir_name_is_stable() {
+        assert_eq!(PORTABLE_DIR_NAME, "sc-rns-data");
+    }
 }
