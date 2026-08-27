@@ -167,10 +167,23 @@ async function refresh() {
     const ibody = $("iface-table").querySelector("tbody");
     ibody.innerHTML = "";
     s.interfaces.forEach((i) => ibody.appendChild(ifaceRow(i)));
-    // DS status.
-    $("ds-status-line").textContent = s.ds.running
-      ? `Running on port ${s.ds.port ?? "?"} (${s.ds.install_dir ?? "?"})`
-      : "Stopped.";
+    // DS status + download progress.
+    const ds = s.ds || {};
+    const phase = ds.phase || "idle";
+    const progressEl = $("ds-progress");
+    const fillEl = $("ds-progress-fill");
+    const lineEl = $("ds-progress-line");
+    if (phase === "pulling" || phase === "starting") {
+      progressEl.hidden = false;
+      const pct = (ds.progress_pct != null) ? ds.progress_pct : 0;
+      fillEl.style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + "%";
+      lineEl.textContent = ds.last_line || (phase === "pulling" ? "downloading…" : "starting…");
+    } else {
+      progressEl.hidden = true;
+    }
+    $("ds-status-line").textContent = ds.running
+      ? `Running on port ${ds.port ?? "?"} (${ds.install_dir ?? "?"})`
+      : (phase === "error" ? ("Error: " + (ds.last_line || "unknown")) : "Stopped.");
     // Resume warnings (rare): surface inline so the operator notices.
     const re = $("resume-errors");
     if (re) {
