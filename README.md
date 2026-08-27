@@ -159,7 +159,9 @@ Then they connect their Sven Co-op client to `localhost:27015` (or whatever
 `--listen-port` they chose). The bridge client auto-discovers the server via
 the `sven-coop.server` announce, or the host can share the printed
 `server_hash` for players to pass via `--server-hash <32-hex-chars>` to skip
-discovery.
+discovery. With `--server-hash` the client also proactively requests a path to
+the server, so it connects within a second or two even when no announce has
+been heard yet (see Troubleshooting → `NoRouteToDestination`).
 
 ## CLI reference
 
@@ -232,6 +234,42 @@ version — the vendored Prns engine is sized for a 2048-byte link MTU so
 GoldSrc datagrams fit in a single link packet. If you built from an older
 commit, rebuild.
 
+### `NoRouteToDestination` / the client never reaches the server
+
+The bridge client learns the route to the server from Reticulum **announces**.
+That dependency is fragile:
+
+- The server may announce slowly (a high `--announce-interval`).
+- A transport node in between may not rebroadcast the announce onto the
+  interface your client is on. Reticulum floods an announce to every interface
+  *except* the one it arrived on, so two peers peered into the **same** TCP
+  server interface of a transport node (for example both passing
+  `--tcp <transport>:4966`) never receive each other's announces at all.
+
+When no route is known, the first game packet fails with `NoRouteToDestination`
+(or is dropped as "first packet seen but no server discovered yet").
+
+The client now avoids this: when `--server-hash` is given it **proactively
+issues a Reticulum path request** for that destination, and retries the path
+request on link failure. Any node that already knows the path — including a
+transport node that cached it from an earlier announce — answers, so the route
+is resolved in about a second without waiting for the next announce. Path
+requests are routed point-to-point, so they cross transport nodes that
+announces don't.
+
+If you still see `NoRouteToDestination`:
+
+1. Make sure the bridge server is actually running and has announced at least
+   once (its `server_hash` is printed at startup). A transport node only learns
+   a path after the first announce reaches it, and the client's path request
+   can only resolve once some node knows that path.
+2. If the server and client both peer into the *same* open TCP interface of a
+   transport node, keep `--announce-interval` low (the default is 15s) so the
+   transport node caches the path quickly after the server starts.
+3. Without `--server-hash` the client can only fall back on announces. Pass
+   `--server-hash <32-hex-chars>` (the host shares the hash printed at server
+   startup) for the most reliable connection.
+
 ## Architecture notes
 
 - **`src/framing.rs`** — length-prefix framing: splits each GoldSrc datagram
@@ -245,6 +283,11 @@ commit, rebuild.
   own Link.
 - **No persistence** — the bridge keeps no routing state across restarts;
   the Reticulum mesh re-learns announces within one announce interval.
+- **Path requests** — the client issues a Reticulum path request for a known
+  `--server-hash` (proactively at startup, and again on link failure) so it
+  doesn't depend on hearing an announce to learn the route. This is what makes
+  the client usable behind a transport node that doesn't rebroadcast announces
+  between same-interface peers.
 
 ## License
 

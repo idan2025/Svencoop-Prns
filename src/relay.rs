@@ -378,6 +378,32 @@ async fn run_client(args: crate::config::ClientArgs) -> Result<()> {
         info!("no --server-hash given; waiting to discover sven-coop.server via announce");
     }
 
+    // If the server hash was given explicitly, proactively request a path to it
+    // from the network. Reticulum only learns a route on hearing an announce,
+    // which can take the server's full announce interval — or never arrive at
+    // all if a transport node doesn't rebroadcast between two clients on the
+    // same interface. A path request resolves the route on demand from any
+    // node that already knows it, so the first game packet doesn't get dropped
+    // with NoRouteToDestination.
+    if let Some(h) = target_hash {
+        let probe_handle = handle.clone();
+        let _path_probe_task = tokio::spawn(async move {
+            for attempt in 1..=12u32 {
+                match probe_handle.request_path(h).await {
+                    Ok(_) => {
+                        info!(server_hash = ?h.as_bytes(), attempt, "path to server resolved via path request");
+                        return;
+                    }
+                    Err(e) => {
+                        debug!(attempt, error = ?e, "path request pending; retrying in 5s");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                }
+            }
+            warn!(server_hash = ?h.as_bytes(), "could not resolve path to server after retries");
+        });
+    }
+
     // Per-link data channels: the router writes link data into these, relays
     // read from them to send UDP back to the GoldSrc client.
     let link_data: LinkSenders = Arc::new(RwLock::new(std::collections::HashMap::new()));
@@ -456,8 +482,27 @@ async fn run_client(args: crate::config::ClientArgs) -> Result<()> {
                 let link_id = match handle.establish_link(target).await {
                     Ok(id) => id,
                     Err(e) => {
-                        error!(src = %src, error = ?e, "failed to establish link");
-                        return;
+                        // No route known yet — ask the network to resolve one,
+                        // then retry the link establishment once. This recovers
+                        // from NoRouteToDestination when no announce has been
+                        // heard yet (slow announce interval, or a transport
+                        // node that doesn't rebroadcast between same-interface
+                        // clients).
+                        info!(src = %src, error = ?e, "no route to server; requesting path then retrying");
+                        match handle.request_path(target).await {
+                            Ok(_) => {}
+                            Err(pe) => {
+                                error!(src = %src, error = ?pe, "path request to server failed");
+                                return;
+                            }
+                        }
+                        match handle.establish_link(target).await {
+                            Ok(id) => id,
+                            Err(e2) => {
+                                error!(src = %src, error = ?e2, "establish link failed after path request");
+                                return;
+                            }
+                        }
                     }
                 };
                 debug!(src = %src, link = ?link_id, "link established");
