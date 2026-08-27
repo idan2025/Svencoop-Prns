@@ -15,3 +15,6 @@
 
 # Controller crate build artifacts.
 /controller/target/
+
+# Release artifacts (built locally; distributed via GitHub Releases, not git).
+/release/

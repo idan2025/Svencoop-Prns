@@ -184,7 +184,7 @@ async fn ds_stop(state: tauri::State<'_, CtrlState>) -> Result<(), String> {
 
 #[tauri::command]
 async fn ds_status(state: tauri::State<'_, CtrlState>) -> Result<sc_rns_controller::DsStatus, String> {
-    with_ctrl(state, |ctrl| Box::pin(async move { Ok(ctrl.ds_status().await) })).await
+    with_ctrl(state, |ctrl| Box::pin(async move { Ok(ctrl.ds_status()) })).await
 }
 
 // ---- connect + launch ----
