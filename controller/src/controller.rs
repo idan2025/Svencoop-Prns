@@ -457,8 +457,8 @@ impl BridgeController {
         Ok(())
     }
 
-    pub async fn ds_status(&mut self) -> DsStatus {
-        self.ds.status().await
+    pub fn ds_status(&self) -> DsStatus {
+        self.ds.status()
     }
 
     // ---- connect + launch ----
@@ -499,7 +499,7 @@ impl BridgeController {
         };
         let servers = self.list_servers().await?;
         let interfaces = self.list_interfaces().unwrap_or_default();
-        let ds = self.ds.status().await;
+        let ds = self.ds.status();
         Ok(ControllerState {
             bridge_running,
             bridge_role,
