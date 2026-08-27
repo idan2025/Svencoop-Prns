@@ -7,11 +7,12 @@
 //! its node on a dedicated thread (see `sc_rns_bridge::relay`), so this struct
 //! is `Send` and safe to share.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
 
 use personal_rns::prelude::*;
@@ -22,6 +23,78 @@ use sc_rns_bridge::{BridgeSession, ClientArgs, ServerArgs};
 use crate::ds::{DsManager, DsStartArgs, DsStatus};
 use crate::game::GameLauncher;
 use crate::server_entry::ServerEntry;
+
+/// One saved Reticulum interface, for re-attaching on resume.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InterfaceDescriptor {
+    /// Runtime interface id (hex) captured at attach time; used to match a
+    /// `remove_interface` call to this descriptor. Re-generated on resume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// `"tcp"` or `"auto"`.
+    pub kind: String,
+    /// `host:port` for tcp; absent for auto.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addr: Option<String>,
+    /// IFAC network name, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ifac_name: Option<String>,
+}
+
+/// Persisted operator choices, written to `<bundle>/settings.json` so the host
+/// resumes its last state after a container restart/recreate (as long as the
+/// volume isn't wiped). Best-effort: a missing/corrupt file is treated as
+/// defaults, never fatal.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Settings {
+    /// Schema version for future migrations.
+    #[serde(default)]
+    pub version: u32,
+    /// Last bridge-server args (the host runs the server role).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bridge: Option<ServerArgs>,
+    /// Whether the bridge server should be running on resume.
+    #[serde(default)]
+    pub bridge_running: bool,
+    /// Last dedicated-server args.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ds: Option<DsStartArgs>,
+    /// Whether the DS should be running on resume.
+    #[serde(default)]
+    pub ds_running: bool,
+    /// Extra live-attached Reticulum interfaces to re-attach on resume.
+    #[serde(default)]
+    pub interfaces: Vec<InterfaceDescriptor>,
+}
+
+impl Settings {
+    const VERSION: u32 = 1;
+
+    fn new() -> Self {
+        Self {
+            version: Self::VERSION,
+            ..Default::default()
+        }
+    }
+}
+
+impl InterfaceDescriptor {
+    fn addr_or_kind(&self) -> String {
+        self.addr.clone().unwrap_or_else(|| self.kind.clone())
+    }
+}
+
+/// Load settings from a path; returns None if missing or unreadable (best-effort).
+fn load_settings(path: &PathBuf) -> Option<Settings> {
+    let bytes = std::fs::read(path).ok()?;
+    match serde_json::from_slice::<Settings>(&bytes) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "settings.json corrupt; ignoring");
+            None
+        }
+    }
+}
 
 /// One attached Reticulum interface, for the GUI's Interfaces tab.
 #[derive(Debug, Clone, Serialize)]
@@ -47,6 +120,10 @@ pub struct ControllerState {
     pub ds: DsStatus,
     pub servers: Vec<ServerEntry>,
     pub interfaces: Vec<InterfaceInfo>,
+    /// Warnings from the last `resume()` (e.g. a saved component failed to
+    /// restart). Empty when everything resumed cleanly.
+    #[serde(default)]
+    pub resume_errors: Vec<String>,
 }
 
 /// One running bridge + the DS manager.
@@ -56,22 +133,98 @@ pub struct BridgeController {
     session: Option<BridgeSession>,
     last_server_args: Option<ServerArgs>,
     last_client_args: Option<ClientArgs>,
+    settings: Settings,
+    resume_errors: Vec<String>,
 }
 
 impl BridgeController {
     pub fn new(bundle_dir: PathBuf) -> Self {
+        let settings_path = bundle_dir.join("settings.json");
+        let settings = load_settings(&settings_path).unwrap_or_else(Settings::new);
+        // Seed the in-memory "last args" from persisted settings so the panel
+        // opens showing the real last config, not defaults.
+        let last_server_args = settings.bridge.clone();
         Self {
             ds: DsManager::new(bundle_dir.clone()),
             bundle_dir,
             session: None,
-            last_server_args: None,
+            last_server_args,
             last_client_args: None,
+            settings,
+            resume_errors: Vec::new(),
         }
     }
 
     /// The bundle dir everything resolves from.
     pub fn bundle_dir(&self) -> &std::path::Path {
         &self.bundle_dir
+    }
+
+    fn settings_path(&self) -> PathBuf {
+        self.bundle_dir.join("settings.json")
+    }
+
+    /// Best-effort persist of the current settings to `<bundle>/settings.json`.
+    /// Logs on failure; never returns an error (settings are non-critical).
+    fn save_settings(&self) {
+        let path = self.settings_path();
+        match serde_json::to_string_pretty(&self.settings) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    tracing::warn!(path = %path.display(), error = %e, "failed to write settings.json");
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to serialize settings"),
+        }
+    }
+
+    /// Restore the last running state from `settings.json`. Called once on
+    /// startup. Failures are logged + recorded in `resume_errors`, never fatal
+    /// — the panel still loads and the operator can fix things from the UI.
+    pub async fn resume(&mut self) {
+        self.resume_errors.clear();
+        let s = self.settings.clone();
+
+        // Bridge server first (interfaces attach to its node).
+        if s.bridge_running {
+            if let Some(args) = s.bridge.clone() {
+                if let Err(e) = self.start_bridge_server(args).await {
+                    self.resume_errors.push(format!("bridge server: {e}"));
+                }
+            }
+        }
+
+        // Re-attach saved extra interfaces (only meaningful if bridge is up).
+        if self.session.is_some() {
+            for desc in s.interfaces.clone() {
+                let res = match desc.kind.as_str() {
+                    "tcp" => {
+                        let addr = desc.addr.clone().unwrap_or_default();
+                        self.add_interface_tcp(addr, desc.ifac_name.clone()).await
+                    }
+                    "auto" => self.add_interface_auto(),
+                    other => Err(anyhow!("unknown interface kind {other} in settings")),
+                };
+                if let Err(e) = res {
+                    self.resume_errors.push(format!("interface {:?}: {e}", desc.addr_or_kind()));
+                }
+            }
+        }
+
+        // Dedicated server last.
+        if s.ds_running {
+            if let Some(args) = s.ds.clone() {
+                if let Err(e) = self.ds_start(args).await {
+                    self.resume_errors.push(format!("dedicated server: {e}"));
+                }
+            }
+        }
+
+        if self.resume_errors.is_empty() {
+            tracing::info!("resume: restored last running state from settings.json");
+        } else {
+            tracing::warn!(errors = ?self.resume_errors, "resume: some components failed to restart");
+        }
     }
 
     /// True if a bridge session (either role) is running.
@@ -92,7 +245,10 @@ impl BridgeController {
             anyhow::bail!("a bridge session is already running; stop it first");
         }
         self.session = Some(BridgeSession::start_server(args.clone()).await?);
-        self.last_server_args = Some(args);
+        self.last_server_args = Some(args.clone());
+        self.settings.bridge = Some(args);
+        self.settings.bridge_running = true;
+        self.save_settings();
         Ok(())
     }
 
@@ -100,6 +256,8 @@ impl BridgeController {
         if let Some(mut s) = self.session.take() {
             s.stop();
         }
+        self.settings.bridge_running = false;
+        self.save_settings();
         Ok(())
     }
 
@@ -170,10 +328,15 @@ impl BridgeController {
     /// Add a TCP interface. `addr` is `host:port`; `0.0.0.0:PORT` (or `:PORT`)
     /// binds a TCP server, any other host connects as a TCP client. If
     /// `ifac_name` is given, the interface is IFAC-protected with that network
-    /// name.
-    pub async fn add_interface_tcp(&self, addr: String, ifac_name: Option<String>) -> Result<()> {
+    /// name. Persists the interface so it is re-attached on resume.
+    pub async fn add_interface_tcp(
+        &mut self,
+        addr: String,
+        ifac_name: Option<String>,
+    ) -> Result<()> {
         let handle = self.require_session()?.handle();
         let (host, port) = parse_host_port(&addr)?;
+        let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
         // IfacContext::derive returns None when the network name is empty/None,
         // which is exactly the "no IFAC" case.
         let ifac = IfacContext::derive(ifac_name.as_deref(), None, DEFAULT_IFAC_SIZE);
@@ -206,24 +369,62 @@ impl BridgeController {
         } else {
             return Err(anyhow!("invalid TCP address {addr}: no port"));
         }
+        // Capture the newly-attached interface's runtime id (before/after diff)
+        // so a later `remove_interface` can drop the matching saved descriptor.
+        let new_id = handle
+            .interfaces()
+            .iter()
+            .find(|s| !before.contains(&s.id))
+            .map(|s| hex::encode(s.id.as_bytes()));
+        self.settings.interfaces.push(InterfaceDescriptor {
+            id: new_id,
+            kind: "tcp".to_string(),
+            addr: Some(addr),
+            ifac_name,
+        });
+        self.save_settings();
         Ok(())
     }
 
-    /// Add a Wi-Fi/LAN auto-discovery interface (no internet needed).
-    pub fn add_interface_auto(&self) -> Result<()> {
+    /// Add a Wi-Fi/LAN auto-discovery interface (no internet needed). Persists
+    /// it so it is re-attached on resume.
+    pub fn add_interface_auto(&mut self) -> Result<()> {
         let handle = self.require_session()?.handle();
+        let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
         handle.attach(AutoWifi::default());
+        let new_id = handle
+            .interfaces()
+            .iter()
+            .find(|s| !before.contains(&s.id))
+            .map(|s| hex::encode(s.id.as_bytes()));
         tracing::info!("attached Wi-Fi/LAN auto-discovery interface");
+        self.settings.interfaces.push(InterfaceDescriptor {
+            id: new_id,
+            kind: "auto".to_string(),
+            addr: None,
+            ifac_name: None,
+        });
+        self.save_settings();
         Ok(())
     }
 
-    /// Remove an interface by its hex id.
-    pub fn remove_interface(&self, id_hex: &str) -> Result<()> {
+    /// Remove an interface by its hex id. Also drops the matching saved
+    /// descriptor so it won't be re-attached on resume.
+    pub fn remove_interface(&mut self, id_hex: &str) -> Result<()> {
         let handle = self.require_session()?.handle();
         let id = find_interface_by_hex(handle, id_hex)?
             .ok_or_else(|| anyhow!("no interface with id {id_hex}"))?;
         handle.remove_interface(id);
+        let target = id_hex.to_ascii_lowercase();
+        // Drop the saved descriptor whose captured id matches the removed one.
+        self.settings.interfaces.retain(|d| {
+            !d.id
+                .as_deref()
+                .map(|i| i.eq_ignore_ascii_case(&target))
+                .unwrap_or(false)
+        });
         tracing::info!(id = id_hex, "removed interface");
+        self.save_settings();
         Ok(())
     }
 
@@ -242,11 +443,18 @@ impl BridgeController {
     // ---- dedicated server ----
 
     pub async fn ds_start(&mut self, args: DsStartArgs) -> Result<()> {
-        self.ds.start(args).await
+        self.ds.start(args.clone()).await?;
+        self.settings.ds = Some(args);
+        self.settings.ds_running = true;
+        self.save_settings();
+        Ok(())
     }
 
     pub async fn ds_stop(&mut self) -> Result<()> {
-        self.ds.stop().await
+        self.ds.stop().await?;
+        self.settings.ds_running = false;
+        self.save_settings();
+        Ok(())
     }
 
     pub async fn ds_status(&mut self) -> DsStatus {
@@ -298,6 +506,7 @@ impl BridgeController {
             ds,
             servers,
             interfaces,
+            resume_errors: self.resume_errors.clone(),
         })
     }
 }

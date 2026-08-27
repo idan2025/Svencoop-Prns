@@ -1,0 +1,38 @@
+# Sven Co-op over Reticulum — host release.
+#
+#   docker compose up --build
+#
+# First run: open http://<host>:8080, click "Start / pull" in the DS tab to
+# download the Sven Co-op dedicated server (~2.74 GB) into the `svends` volume,
+# then start the bridge server. The server hash for players is shown in the
+# panel (and in `docker compose logs host`). Settings persist in the `host-data`
+# volume and are restored on every restart/recreate.
+#
+# Player (on their own machine, native binary):
+#   sc-rns-bridge client --tcp <host>:4966 --server-hash <hash> --listen-port 27015
+# then launch the Sven Co-op game connected to 127.0.0.1:27015.
+
+services:
+  host:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: svencoop-prns-host:latest
+    container_name: svencoop-prns-host
+    ports:
+      - "8080:8080/tcp"    # web control panel
+      - "4966:4966/tcp"    # RNS TCPServerInterface — peers connect here
+      - "27015:27015/udp"  # DS — always binds 0.0.0.0; remove this mapping if you don't want LAN exposure
+    volumes:
+      # Persisted settings + RNS identity + steamcmd bootstrap.
+      - host-data:/data
+      # The dedicated server install (wipe this volume to re-download/update).
+      - svends:/data/svends
+    environment:
+      # RNS_LOG / RUST_LOG override if you want louder logs.
+      RUST_LOG: sc_rns_controller=info,sc_rns_bridge=info,personal_rns=warn
+    restart: unless-stopped
+
+volumes:
+  host-data:
+  svends:

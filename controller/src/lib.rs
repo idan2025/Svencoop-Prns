@@ -16,8 +16,8 @@ pub mod game;
 pub mod server_entry;
 pub mod steamcmd;
 
-pub use controller::BridgeController;
-pub use ds::DsManager;
+pub use controller::{BridgeController, ControllerState, InterfaceDescriptor, InterfaceInfo, Settings};
+pub use ds::{DsManager, DsStartArgs, DsStatus};
 pub use game::GameLauncher;
 pub use server_entry::ServerEntry;
 pub use steamcmd::SteamcmdRunner;

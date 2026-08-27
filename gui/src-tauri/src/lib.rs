@@ -203,6 +203,8 @@ struct StateSnapshot {
     ds: sc_rns_controller::DsStatus,
     servers: Vec<sc_rns_controller::ServerEntry>,
     interfaces: Vec<sc_rns_controller::InterfaceInfo>,
+    #[serde(default)]
+    resume_errors: Vec<String>,
 }
 
 #[tauri::command]
@@ -216,6 +218,7 @@ async fn get_state(state: tauri::State<'_, CtrlState>) -> Result<StateSnapshot, 
                 ds: s.ds,
                 servers: s.servers,
                 interfaces: s.interfaces,
+                resume_errors: s.resume_errors,
             })
         })
     })

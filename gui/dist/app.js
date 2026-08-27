@@ -1,9 +1,10 @@
 // Sven Co-op over Reticulum — GUI frontend (vanilla JS, no bundler).
-// Talks to the Tauri backend via window.__TAURI__.core.invoke.
+// Transport-agnostic: under the Tauri desktop shell it calls
+// window.__TAURI__.core.invoke; served from the docker host it POSTs to /api.
+// One frontend, two shells.
 
-const invoke = (window.__TAURI__?.core?.invoke)
-  || (window.__TAURI__?.invoke)
-  || (() => { throw new Error("Tauri invoke not found — build with a webview"); });
+const isTauri = !!(window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke);
+const tauriInvoke = (window.__TAURI__?.core?.invoke) || (window.__TAURI__?.invoke);
 
 const $ = (id) => document.getElementById(id);
 let pollTimer = null;
@@ -18,7 +19,21 @@ function toast(msg, kind = "info") {
 
 async function call(cmd, args = {}) {
   try {
-    return await invoke(cmd, args);
+    if (isTauri) {
+      return await tauriInvoke(cmd, args);
+    }
+    // Web: POST /api/<cmd> with a JSON body (camelCase keys, matching Tauri).
+    const r = await fetch("/api/" + cmd, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args ?? {}),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(t || (r.status + " " + r.statusText));
+    }
+    const ct = r.headers.get("content-type") || "";
+    return ct.includes("json") ? await r.json() : await r.text();
   } catch (e) {
     toast(String(e), "error");
     throw e;
@@ -142,7 +157,7 @@ function serverRow(s) {
 
 async function refresh() {
   try {
-    const s = await invoke("get_state");
+    const s = await call("get_state");
     // Server browser.
     const tbody = $("server-table").querySelector("tbody");
     tbody.innerHTML = "";
@@ -156,6 +171,16 @@ async function refresh() {
     $("ds-status-line").textContent = s.ds.running
       ? `Running on port ${s.ds.port ?? "?"} (${s.ds.install_dir ?? "?"})`
       : "Stopped.";
+    // Resume warnings (rare): surface inline so the operator notices.
+    const re = $("resume-errors");
+    if (re) {
+      if (s.resume_errors && s.resume_errors.length) {
+        re.textContent = "On startup: " + s.resume_errors.join("; ");
+        re.hidden = false;
+      } else {
+        re.hidden = true;
+      }
+    }
     // Status pill.
     $("status-pill").textContent = s.bridge_running ? (s.bridge_role || "running") : "idle";
     $("status-pill").className = s.bridge_running ? "on" : "";

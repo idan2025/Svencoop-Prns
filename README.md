@@ -322,6 +322,58 @@ click **Connect** to launch Sven Co-op joined to the client's localhost port.
 > The CLI launchers (`run.sh` / `run.bat` / `run.command`) still work
 > unchanged — the GUI is a frontend over the same in-process bridge core.
 
+## Docker host release
+
+The host side (the Sven Co-op dedicated server + the bridge server, plus a web
+control panel) runs in one container. Players still run the native bridge
+**client** on their own machines — only the host is containerized.
+
+```
+docker compose up --build
+```
+
+Then open the control panel at **`http://<host>:8080`**. From it you can:
+
+- **DS tab** — click **Start / pull** to download the Sven Co-op dedicated
+  server (Steam app 276060, ~2.74 GB) into the `svends` volume on first use,
+  then start/stop it. The DS always binds `0.0.0.0:27015` (the GoldSrc engine
+  ignores `-ip`), so when the container publishes UDP 27015 any machine on
+  your LAN can connect directly — alongside the Reticulum bridge path. Don't
+  publish 27015 in `docker-compose.yml` if you don't want LAN exposure.
+- **Bridge Server tab** — start the bridge server, which announces the
+  `sven-coop.server` Reticulum destination and binds a TCP interface
+  (`0.0.0.0:4966` by default) for peers.
+- **Interfaces tab** — add/remove/rename Reticulum interfaces live.
+- **Servers browser** — shows discovered `sven-coop.server` destinations.
+
+The server hash players need is shown in the panel and in
+`docker compose logs host` (look for `server_hash=…`).
+
+**Persistence** — every choice (DS args, bridge config, interfaces) is saved
+to `/data/settings.json` on the `host-data` volume. The host restores its last
+running state on every `docker compose up` (restart or recreate), as long as
+you don't wipe the volumes. Wipe `svends` to re-download/update the dedicated
+server; wipe `host-data` to reset settings + identity.
+
+**Player connect** (on the player's own machine, native binary):
+
+```
+sc-rns-bridge client --tcp <host>:4966 --server-hash <hash> --listen-port 27015
+```
+
+then launch the Sven Co-op game connected to `127.0.0.1:27015`.
+
+**Ports published by the container:**
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 8080 | tcp | web control panel |
+| 4966 | tcp | RNS TCPServerInterface — players' bridge clients peer in here |
+| 27015 | udp | dedicated server — the DS always binds `0.0.0.0`; remove this mapping if you don't want LAN exposure |
+
+> The same `gui/dist` frontend powers the Docker web panel and the Tauri
+> desktop shell; it picks `invoke` vs HTTP `fetch` at runtime.
+
 ## Architecture notes
 
 - **`src/framing.rs`** — length-prefix framing: splits each GoldSrc datagram

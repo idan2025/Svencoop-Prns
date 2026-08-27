@@ -1,0 +1,27 @@
+# Build artifacts
+/target
+/controller/target
+/gui/src-tauri/target
+/gui/src-tauri/gen
+
+# Runtime download artifacts (regenerated in volumes)
+/steamcmd
+/svends
+/.svends_path
+
+# Identities are runtime secrets, never baked into an image.
+*.identity
+
+# VCS + editor
+/.git
+/.gitignore
+
+# The Tauri desktop shell source isn't needed by the web binary (the static
+# frontend under gui/dist IS needed and is not ignored).
+/gui/src-tauri
+
+# Docs / scripts not needed in the image.
+/README.md
+/run.sh
+/run.command
+/run.bat

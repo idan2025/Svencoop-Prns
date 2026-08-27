@@ -11,14 +11,14 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::process::Child;
 use tracing::{debug, info};
 
 use crate::steamcmd::{Os, SteamcmdRunner};
 
 /// Startup parameters for the dedicated server.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DsStartArgs {
     /// UDP port the DS listens on (GoldSrc port, default 27015).
     pub port: u16,
@@ -162,6 +162,11 @@ impl DsManager {
 
         info!(exe = %exe.display(), port = args.port, map = %args.map, maxplayers = args.maxplayers, "starting Sven Co-op dedicated server");
         let mut cmd = tokio::process::Command::new(&exe);
+        // The GoldSrc DS (`svends_i686`) always binds `0.0.0.0` — it ignores
+        // the `-ip` flag (verified: `/proc/<pid>/cmdline` shows `-ip
+        // 127.0.0.1` but `/proc/net/udp` still lists `0.0.0.0:<port>`). So the
+        // container publishes 27015/udp unconditionally and the DS is reachable
+        // on the LAN by design; there is no per-instance LAN gate here.
         cmd.arg("-port").arg(args.port.to_string())
             .arg("+maxplayers").arg(args.maxplayers.to_string())
             .arg("+map").arg(&args.map)

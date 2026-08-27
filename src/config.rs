@@ -1,8 +1,11 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+// `serde` derives are gated behind the `serde` feature so the CLI binary stays
+// dependency-light; the controller enables it to persist these args.
 
 #[derive(Parser, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[command(name = "sc-rns-bridge", about = "Sven Co-op over Reticulum")]
 pub struct Cli {
     #[command(subcommand)]
@@ -10,6 +13,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand, Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Role {
     /// Announce a Reticulum destination and bridge accepted links to a local
     /// Sven Co-op server's UDP port.
@@ -20,6 +24,7 @@ pub enum Role {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ServerArgs {
     /// UDP port the real Sven Co-op server listens on.
     #[arg(long, default_value_t = 27015)]
@@ -48,6 +53,7 @@ pub struct ServerArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ClientArgs {
     /// Local UDP port the GoldSrc client will connect to.
     #[arg(long, default_value_t = 27015)]
