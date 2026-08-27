@@ -111,6 +111,31 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 .hint { color: var(--muted); font-size: 12px; margin-top: 12px; }
 #ds-status-line { color: var(--muted); font-size: 13px; margin-top: 10px; }
 
+/* DS download progress bar (steamcmd pull). */
+.ds-progress { margin-top: 14px; }
+.ds-progress-bar {
+  width: 100%;
+  height: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.ds-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), #7ab8ff);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+.ds-progress-line {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 6px;
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+
 #toast {
   position: fixed;
   bottom: 16px;

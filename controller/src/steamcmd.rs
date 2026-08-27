@@ -16,9 +16,132 @@
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+
+/// Callback invoked for each steamcmd output line (stdout + stderr). Used to
+/// surface download progress to the UI.
+pub type ProgressCb<'a> = &'a (dyn Fn(&str) + Send + Sync);
+
+/// Strip ANSI escape sequences (colour codes, cursor moves) that steamcmd
+/// emits, so the progress line shown in the UI is readable.
+fn strip_ansi(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.contains("\x1b") {
+        return s.into();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // ESC [ ... letter : consume the CSI sequence.
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&n) = chars.peek() {
+                    chars.next();
+                    if n.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+                continue;
+            }
+            // Bare ESC + one char: skip the next.
+            chars.next();
+            continue;
+        }
+        out.push(c);
+    }
+    out.into()
+}
+
+/// Parsed steamcmd progress: percent + optional (current, total) bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Progress {
+    pub pct: f64,
+    pub cur_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
+    /// The update-state verb (e.g. "downloading", "verifying install").
+    pub state: Option<String>,
+}
+
+/// Parse a steamcmd progress line. steamcmd emits:
+///   `Update state (0x61) downloading, progress: 92.78 (2540760050 / 2738389637)`
+/// where `92.78` is already a percent and the parens hold `cur / total` bytes.
+/// Handles ANSI-wrapped lines. Returns None for lines without progress info.
+pub fn parse_progress(line: &str) -> Option<Progress> {
+    let clean = strip_ansi(line);
+    let p = clean.find("progress:")?;
+    let rest = clean[p + "progress:".len()..].trim_start();
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
+        .unwrap_or(rest.len());
+    let pct: f64 = rest[..end].trim().parse().ok()?;
+    if !pct.is_finite() {
+        return None;
+    }
+    let pct = pct.clamp(0.0, 100.0);
+
+    // Optional `(cur / total)` bytes in trailing parens.
+    let (cur_bytes, total_bytes) = {
+        let after = &rest[end..];
+        let open = after.find('(')?;
+        let close = after[open..].find(')')?;
+        let inside = after[open + 1..open + close].trim();
+        let slash = inside.find('/')?;
+        let cur: u64 = inside[..slash].trim().parse().ok()?;
+        let total: u64 = inside[slash + 1..].trim().parse().ok()?;
+        (Some(cur), Some(total))
+    };
+
+    // Optional update-state verb before "progress:".
+    let state = clean
+        .find("Update state")
+        .and_then(|s| {
+            let after = &clean[s..];
+            let close = after.find(')')?;
+            let verb_start = close + 1;
+            let verb_end = after[verb_start..]
+                .find("progress:")
+                .map(|e| verb_start + e)?;
+            Some(after[verb_start..verb_end].trim().trim_end_matches(',').trim().to_string())
+        })
+        .filter(|s| !s.is_empty());
+
+    Some(Progress {
+        pct,
+        cur_bytes,
+        total_bytes,
+        state,
+    })
+}
+
+/// Format `bytes` as a human-readable size (e.g. "2.5 GB").
+fn fmt_bytes(b: u64) -> String {
+    const UNITS: &[(&str, u64)] = &[
+        ("TB", 1_000_000_000_000),
+        ("GB", 1_000_000_000),
+        ("MB", 1_000_000),
+        ("KB", 1_000),
+    ];
+    for (unit, scale) in UNITS {
+        if b >= *scale {
+            return format!("{:.2} {}", b as f64 / *scale as f64, unit);
+        }
+    }
+    format!("{} B", b)
+}
+
+/// Build a one-line human-readable progress caption from a parsed `Progress`.
+pub fn progress_caption(p: &Progress) -> String {
+    let verb = p.state.as_deref().unwrap_or("working");
+    match (p.cur_bytes, p.total_bytes) {
+        (Some(cur), Some(total)) => {
+            format!("{}: {:.1}%  ({} / {})", verb, p.pct, fmt_bytes(cur), fmt_bytes(total))
+        }
+        _ => format!("{}: {:.1}%", verb, p.pct),
+    }
+}
 
 /// Operating system, detected from `std::env::consts::OS`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,8 +301,15 @@ impl SteamcmdRunner {
     /// Pull the Sven Co-op dedicated server (app 276060) into `install_dir` via
     /// anonymous login. `+force_install_dir` is passed BEFORE `+login` (the
     /// known ordering trap — otherwise steamcmd exits 8). Streams steamcmd
-    /// stdout/stderr to tracing.
-    pub async fn pull_ds(&self, install_dir: &Path) -> Result<()> {
+    /// stdout/stderr to tracing AND to the optional `on_line` progress
+    /// callback (used by the UI's progress bar). Aborts early if `cancel`
+    /// is set.
+    pub async fn pull_ds(
+        &self,
+        install_dir: &Path,
+        cancel: &AtomicBool,
+        on_line: ProgressCb<'_>,
+    ) -> Result<()> {
         let exe = self.ensure_steamcmd().await?;
         let install_dir = install_dir
             .canonicalize()
@@ -207,20 +337,42 @@ impl SteamcmdRunner {
         let mut out_buf = [0u8; 4096];
         let mut err_buf = [0u8; 4096];
         loop {
+            if cancel.load(Ordering::Relaxed) {
+                let _ = child.start_kill();
+                tracing::warn!("steamcmd pull cancelled");
+                return Err(anyhow!("steamcmd pull cancelled"));
+            }
             tokio::select! {
                 n = stdout.read(&mut out_buf) => {
                     match n {
                         Ok(0) => break,
-                        Ok(n) => tracing::info!("steamcmd: {}", String::from_utf8_lossy(&out_buf[..n]).trim_end()),
+                        Ok(n) => {
+                            let s = String::from_utf8_lossy(&out_buf[..n]);
+                            let trimmed = s.trim_end();
+                            tracing::info!("steamcmd: {trimmed}");
+                            for line in trimmed.lines() {
+                                on_line(&strip_ansi(line));
+                            }
+                        }
                         Err(e) => { tracing::warn!(error=?e, "steamcmd stdout read ended"); break; }
                     }
                 }
                 n = stderr.read(&mut err_buf) => {
                     match n {
                         Ok(0) => break,
-                        Ok(n) => tracing::warn!("steamcmd: {}", String::from_utf8_lossy(&err_buf[..n]).trim_end()),
+                        Ok(n) => {
+                            let s = String::from_utf8_lossy(&err_buf[..n]);
+                            let trimmed = s.trim_end();
+                            tracing::warn!("steamcmd: {trimmed}");
+                            for line in trimmed.lines() {
+                                on_line(&strip_ansi(line));
+                            }
+                        }
                         Err(_) => break,
                     }
+                }
+                _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                    // Periodic cancel check even if steamcmd is silent.
                 }
             }
         }
@@ -414,5 +566,51 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         extract_archive(&buf, Os::Windows, tmp.path()).unwrap();
         assert!(tmp.path().join("steamcmd.exe").exists());
+    }
+
+    #[test]
+    fn strip_ansi_removes_colour_codes() {
+        assert_eq!(strip_ansi("hello"), "hello");
+        assert_eq!(strip_ansi("\x1b[0m"), "");
+        assert_eq!(strip_ansi("\x1b[0mWaiting for user info...\x1b[0m"), "Waiting for user info...");
+        assert_eq!(
+            strip_ansi("\x1b[32mOK\x1b[0m \x1b[1mdone\x1b[0m"),
+            "OK done"
+        );
+    }
+
+    #[test]
+    fn parse_progress_handles_ansi_and_empty() {
+        // Real steamcmd progress line (no ANSI in the progress part).
+        let line = "Update state (0x61) downloading, progress: 92.78 (2540760050 / 2738389637)";
+        let p = parse_progress(line).expect("should parse");
+        assert!((p.pct - 92.78).abs() < 0.01);
+        assert_eq!(p.state.as_deref(), Some("downloading"));
+        assert_eq!(p.cur_bytes, Some(2540760050));
+        assert_eq!(p.total_bytes, Some(2738389637));
+        // Wrapped in ANSI.
+        let line = "\x1b[0mUpdate state (0x61) downloading, progress: 50.00 (100 / 200)\x1b[0m";
+        let p = parse_progress(line).expect("should parse ANSI");
+        assert!((p.pct - 50.0).abs() < 0.01);
+        assert_eq!(p.cur_bytes, Some(100));
+        assert_eq!(p.total_bytes, Some(200));
+        // No progress token.
+        assert!(parse_progress("Logging in user 'anonymous'…").is_none());
+        assert!(parse_progress("").is_none());
+    }
+
+    #[test]
+    fn progress_caption_is_human_readable() {
+        let p = Progress {
+            pct: 92.78,
+            cur_bytes: Some(2540760050),
+            total_bytes: Some(2738389637),
+            state: Some("downloading".to_string()),
+        };
+        let s = progress_caption(&p);
+        assert!(s.contains("downloading"), "{s}");
+        assert!(s.contains("92.8%"), "{s}");
+        assert!(s.contains("2.54 GB"), "{s}");
+        assert!(s.contains("2.74 GB"), "{s}");
     }
 }
