@@ -180,13 +180,15 @@ async fn api_dispatch(
         // ---- interfaces ----
         "add_interface_tcp" => {
             let r: AddTcpReq = parse(body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-            ctrl.add_interface_tcp(r.addr, r.ifac_name)
+            ctrl.add_interface_tcp(r.addr, r.ifac_name, r.ifac_passphrase)
                 .await
                 .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             ok()
         }
         "add_interface_auto" => {
-            ctrl.add_interface_auto().map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            let r: AddAutoReq = parse(body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            ctrl.add_interface_auto(r.ifac_name, r.ifac_passphrase)
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             ok()
         }
         "remove_interface" => {
@@ -262,6 +264,16 @@ struct ClientStartReq {
 struct AddTcpReq {
     addr: String,
     ifac_name: Option<String>,
+    ifac_passphrase: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct AddAutoReq {
+    #[serde(default)]
+    ifac_name: Option<String>,
+    #[serde(default)]
+    ifac_passphrase: Option<String>,
 }
 
 #[derive(Deserialize)]

@@ -130,13 +130,21 @@ async fn add_interface_tcp(
     state: tauri::State<'_, CtrlState>,
     addr: String,
     ifac_name: Option<String>,
+    ifac_passphrase: Option<String>,
 ) -> Result<(), String> {
-    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.add_interface_tcp(addr, ifac_name).await })).await
+    with_ctrl(state, |ctrl| {
+        Box::pin(async move { ctrl.add_interface_tcp(addr, ifac_name, ifac_passphrase).await })
+    })
+    .await
 }
 
 #[tauri::command]
-async fn add_interface_auto(state: tauri::State<'_, CtrlState>) -> Result<(), String> {
-    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.add_interface_auto() })).await
+async fn add_interface_auto(
+    state: tauri::State<'_, CtrlState>,
+    ifac_name: Option<String>,
+    ifac_passphrase: Option<String>,
+) -> Result<(), String> {
+    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.add_interface_auto(ifac_name, ifac_passphrase) })).await
 }
 
 #[tauri::command]

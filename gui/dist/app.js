@@ -136,10 +136,20 @@ $("cli-stop").addEventListener("click", async () => { await call("stop_client");
 
 // ---- interfaces ----
 $("if-add-tcp").addEventListener("click", async () => {
-  await call("add_interface_tcp", { addr: val("if-tcp", ""), ifacName: optStr("if-ifac") });
+  await call("add_interface_tcp", {
+    addr: val("if-tcp", ""),
+    ifacName: optStr("if-ifac"),
+    ifacPassphrase: optStr("if-ifac-pass"),
+  });
   toast("Interface added.");
 });
-$("if-add-auto").addEventListener("click", async () => { await call("add_interface_auto"); toast("Auto interface added."); });
+$("if-add-auto").addEventListener("click", async () => {
+  await call("add_interface_auto", {
+    ifacName: optStr("if-ifac"),
+    ifacPassphrase: optStr("if-ifac-pass"),
+  });
+  toast("Auto interface added.");
+});
 
 function ifaceRow(i) {
   const tr = document.createElement("tr");

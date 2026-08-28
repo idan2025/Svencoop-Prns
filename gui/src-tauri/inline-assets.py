@@ -133,6 +133,7 @@ __CSS__
           <legend>Add interface</legend>
           <label>TCP host:port (0.0.0.0:PORT to bind) <input id="if-tcp" type="text" placeholder="0.0.0.0:4234" /></label>
           <label>IFAC network name (blank = open) <input id="if-ifac" type="text" /></label>
+          <label>IFAC passphrase (the actual shared secret — name alone is guessable) <input id="if-ifac-pass" type="password" /></label>
           <button id="if-add-tcp">Add TCP</button>
           <button id="if-add-auto">Add Wi-Fi/LAN auto</button>
         </fieldset>

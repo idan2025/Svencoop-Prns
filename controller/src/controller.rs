@@ -39,6 +39,11 @@ pub struct InterfaceDescriptor {
     /// IFAC network name, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ifac_name: Option<String>,
+    /// IFAC passphrase, if any. Stored in plaintext in `settings.json`
+    /// alongside the rest of the local, unencrypted operator config — same
+    /// trust boundary as an OS-level Wi-Fi password store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ifac_passphrase: Option<String>,
 }
 
 /// Persisted operator choices, written to `<bundle>/settings.json` so the host
@@ -200,9 +205,10 @@ impl BridgeController {
                 let res = match desc.kind.as_str() {
                     "tcp" => {
                         let addr = desc.addr.clone().unwrap_or_default();
-                        self.add_interface_tcp(addr, desc.ifac_name.clone()).await
+                        self.add_interface_tcp(addr, desc.ifac_name.clone(), desc.ifac_passphrase.clone())
+                            .await
                     }
-                    "auto" => self.add_interface_auto(),
+                    "auto" => self.add_interface_auto(desc.ifac_name.clone(), desc.ifac_passphrase.clone()),
                     other => Err(anyhow!("unknown interface kind {other} in settings")),
                 };
                 if let Err(e) = res {
@@ -327,19 +333,28 @@ impl BridgeController {
 
     /// Add a TCP interface. `addr` is `host:port`; `0.0.0.0:PORT` (or `:PORT`)
     /// binds a TCP server, any other host connects as a TCP client. If
-    /// `ifac_name` is given, the interface is IFAC-protected with that network
-    /// name. Persists the interface so it is re-attached on resume.
+    /// `ifac_name` and/or `ifac_passphrase` are given, the interface is
+    /// IFAC-protected — matching upstream Reticulum, either one alone is
+    /// enough to derive a key, but the passphrase is the actual secret (the
+    /// network name alone is guessable/enumerable, e.g. from packet metadata
+    /// or by anyone who's seen it once). Persists the interface so it is
+    /// re-attached on resume.
     pub async fn add_interface_tcp(
         &mut self,
         addr: String,
         ifac_name: Option<String>,
+        ifac_passphrase: Option<String>,
     ) -> Result<()> {
         let handle = self.require_session()?.handle();
         let (host, port) = parse_host_port(&addr)?;
         let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
-        // IfacContext::derive returns None when the network name is empty/None,
-        // which is exactly the "no IFAC" case.
-        let ifac = IfacContext::derive(ifac_name.as_deref(), None, DEFAULT_IFAC_SIZE);
+        // IfacContext::derive returns None when both name and passphrase are
+        // empty/None, which is exactly the "no IFAC" case.
+        let ifac = IfacContext::derive(
+            ifac_name.as_deref(),
+            ifac_passphrase.as_deref(),
+            DEFAULT_IFAC_SIZE,
+        );
         let ifac_set = ifac.is_some();
         if host == "0.0.0.0" || host.is_empty() {
             // Bind a TCP server interface.
@@ -381,28 +396,49 @@ impl BridgeController {
             kind: "tcp".to_string(),
             addr: Some(addr),
             ifac_name,
+            ifac_passphrase,
         });
         self.save_settings();
         Ok(())
     }
 
-    /// Add a Wi-Fi/LAN auto-discovery interface (no internet needed). Persists
-    /// it so it is re-attached on resume.
-    pub fn add_interface_auto(&mut self) -> Result<()> {
+    /// Add a Wi-Fi/LAN auto-discovery interface (no internet needed). If
+    /// `ifac_name` and/or `ifac_passphrase` are given, only peers sharing the
+    /// same IFAC can talk to this interface — otherwise any node on the LAN
+    /// segment discovering the multicast announce can attach. Persists it so
+    /// it is re-attached on resume.
+    pub fn add_interface_auto(
+        &mut self,
+        ifac_name: Option<String>,
+        ifac_passphrase: Option<String>,
+    ) -> Result<()> {
         let handle = self.require_session()?.handle();
         let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
-        handle.attach(AutoWifi::default());
+        let ifac = IfacContext::derive(
+            ifac_name.as_deref(),
+            ifac_passphrase.as_deref(),
+            DEFAULT_IFAC_SIZE,
+        );
+        match ifac {
+            Some(ifac) => {
+                handle.attach_with_ifac_name(AutoWifi::default(), ifac, ifac_name.clone());
+            }
+            None => {
+                handle.attach(AutoWifi::default());
+            }
+        }
         let new_id = handle
             .interfaces()
             .iter()
             .find(|s| !before.contains(&s.id))
             .map(|s| hex::encode(s.id.as_bytes()));
-        tracing::info!("attached Wi-Fi/LAN auto-discovery interface");
+        tracing::info!(ifac = ifac_name.is_some() || ifac_passphrase.is_some(), "attached Wi-Fi/LAN auto-discovery interface");
         self.settings.interfaces.push(InterfaceDescriptor {
             id: new_id,
             kind: "auto".to_string(),
             addr: None,
-            ifac_name: None,
+            ifac_name,
+            ifac_passphrase,
         });
         self.save_settings();
         Ok(())
