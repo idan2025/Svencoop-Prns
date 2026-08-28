@@ -157,11 +157,23 @@ jobs:
           find target/release/bundle/msi -maxdepth 1 -iname "*.msi" -exec cp {} "$out/" \; 2>/dev/null || true
           find target/release/bundle/nsis -maxdepth 1 -iname "*.exe" -exec cp {} "$out/Sven_Co-op_over_Reticulum_${version}_x86_64-setup.exe" \; 2>/dev/null || true
 
-          # Portable zip: raw exe + its required WebView2Loader.dll + README.
+          # Portable zip: raw exe + README, plus WebView2Loader.dll if the
+          # build produced one as a loose file. Only the mingw-w64 cross
+          # build (x86_64-pc-windows-gnu) is known to need this shipped
+          # alongside the exe; native MSVC builds apparently don't drop one
+          # into target/release/ at all (likely linked differently), so
+          # this is best-effort — search broadly and don't fail the build
+          # over it, but do warn loudly so a genuinely broken portable exe
+          # doesn't go out unnoticed the way v0.1.0-v0.1.2 did.
           mkdir -p /tmp/portable-win
           cp target/release/sc-rns-gui.exe "/tmp/portable-win/Sven_Co-op_over_Reticulum_${version}_x86_64.exe"
-          cp target/release/WebView2Loader.dll /tmp/portable-win/
           cp "$GITHUB_WORKSPACE/packaging/README-PORTABLE.txt" /tmp/portable-win/
+          dll=$(find target -iname "WebView2Loader.dll" | head -1 || true)
+          if [ -n "$dll" ]; then
+            cp "$dll" /tmp/portable-win/
+          else
+            echo "::warning::No WebView2Loader.dll found anywhere under target/ — shipping the portable zip without it. Verify the raw exe still launches (it may statically link the loader on MSVC); if not, this needs a real fix, not just a wider find."
+          fi
           (cd /tmp/portable-win && 7z a "$out/Sven_Co-op_over_Reticulum_${version}_portable_windows_x86_64.zip" *)
 
       - uses: actions/upload-artifact@v4
