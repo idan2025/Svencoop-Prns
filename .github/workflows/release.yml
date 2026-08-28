@@ -25,8 +25,9 @@ name: Release
 # Triggers:
 #   - push tags matching v*: full pipeline, ends with a GitHub Release.
 #   - workflow_dispatch: manual run for testing individual OS builds
-#     without cutting a release (the publish-release job still runs, but
-#     falls back to a placeholder tag-less draft if there's no tag ref).
+#     without cutting a release (publish-release only runs on a `v*` tag
+#     ref, so a manual dispatch from a branch builds everything but skips
+#     it — nothing gets published).
 
 on:
   workflow_dispatch: {}
