@@ -114,6 +114,38 @@ impl InterfaceDescriptor {
     fn addr_or_kind(&self) -> String {
         self.addr.clone().unwrap_or_else(|| self.kind.clone())
     }
+
+    /// Identity for dedup purposes: same kind/role/addr/peer_addr means the
+    /// same logical interface, regardless of runtime `id` (regenerated every
+    /// attach) or IFAC fields (a corrected passphrase should replace the old
+    /// entry, not sit alongside it).
+    fn same_endpoint(&self, other: &InterfaceDescriptor) -> bool {
+        self.kind == other.kind
+            && self.role == other.role
+            && self.addr == other.addr
+            && self.peer_addr == other.peer_addr
+    }
+}
+
+/// Collapses descriptors that share the same endpoint identity down to one
+/// each, keeping the last occurrence (freshest IFAC config). Settings files
+/// written before dedup-on-write existed could accumulate many duplicates —
+/// every `resume()` re-attach used to unconditionally append its own
+/// descriptor back — so this repairs any that already exist on load, the
+/// same way a corrupted `mapcycle.txt` gets repaired on DS start. Returns
+/// `true` if anything changed.
+fn dedup_interfaces(interfaces: &mut Vec<InterfaceDescriptor>) -> bool {
+    let before = interfaces.len();
+    let mut kept: Vec<InterfaceDescriptor> = Vec::with_capacity(before);
+    for d in interfaces.drain(..) {
+        if let Some(existing) = kept.iter_mut().find(|k: &&mut InterfaceDescriptor| k.same_endpoint(&d)) {
+            *existing = d;
+        } else {
+            kept.push(d);
+        }
+    }
+    *interfaces = kept;
+    interfaces.len() != before
 }
 
 /// Load settings from a path; returns None if missing or unreadable (best-effort).
@@ -239,6 +271,10 @@ impl BridgeController {
     /// — the panel still loads and the operator can fix things from the UI.
     pub async fn resume(&mut self) {
         self.resume_errors.clear();
+        if dedup_interfaces(&mut self.settings.interfaces) {
+            tracing::info!("resume: collapsed duplicate interface entries in settings.json");
+            self.save_settings();
+        }
         let s = self.settings.clone();
 
         // Bridge server and client first (interfaces attach to one or the
@@ -306,6 +342,18 @@ impl BridgeController {
     /// True if either bridge session (server or client) is running.
     pub fn is_running(&self) -> bool {
         self.server_session.is_some() || self.client_session.is_some()
+    }
+
+    /// Save (or update in place) an interface descriptor, keyed by endpoint
+    /// identity (kind/role/addr/peer_addr). Prevents `add_interface_*` from
+    /// piling up duplicate entries on repeated adds or repeated `resume()`
+    /// re-attaches of the same saved interface.
+    fn record_interface(&mut self, desc: InterfaceDescriptor) {
+        match self.settings.interfaces.iter_mut().find(|d| d.same_endpoint(&desc)) {
+            Some(existing) => *existing = desc,
+            None => self.settings.interfaces.push(desc),
+        }
+        self.save_settings();
     }
 
     /// Look up a running session by role string (`"server"` or `"client"`).
@@ -486,7 +534,7 @@ impl BridgeController {
             .iter()
             .find(|s| !before.contains(&s.id))
             .map(|s| hex::encode(s.id.as_bytes()));
-        self.settings.interfaces.push(InterfaceDescriptor {
+        self.record_interface(InterfaceDescriptor {
             id: new_id,
             kind: "tcp".to_string(),
             addr: Some(addr),
@@ -495,7 +543,6 @@ impl BridgeController {
             ifac_name,
             ifac_passphrase,
         });
-        self.save_settings();
         Ok(())
     }
 
@@ -531,7 +578,7 @@ impl BridgeController {
             .find(|s| !before.contains(&s.id))
             .map(|s| hex::encode(s.id.as_bytes()));
         tracing::info!(ifac = ifac_name.is_some() || ifac_passphrase.is_some(), "attached Wi-Fi/LAN auto-discovery interface");
-        self.settings.interfaces.push(InterfaceDescriptor {
+        self.record_interface(InterfaceDescriptor {
             id: new_id,
             kind: "auto".to_string(),
             addr: None,
@@ -540,7 +587,6 @@ impl BridgeController {
             ifac_name,
             ifac_passphrase,
         });
-        self.save_settings();
         Ok(())
     }
 
@@ -583,7 +629,7 @@ impl BridgeController {
             .iter()
             .find(|s| !before.contains(&s.id))
             .map(|s| hex::encode(s.id.as_bytes()));
-        self.settings.interfaces.push(InterfaceDescriptor {
+        self.record_interface(InterfaceDescriptor {
             id: new_id,
             kind: "udp".to_string(),
             addr: Some(local),
@@ -592,7 +638,6 @@ impl BridgeController {
             ifac_name,
             ifac_passphrase,
         });
-        self.save_settings();
         Ok(())
     }
 
@@ -660,7 +705,7 @@ impl BridgeController {
             .iter()
             .find(|s| !before.contains(&s.id))
             .map(|s| hex::encode(s.id.as_bytes()));
-        self.settings.interfaces.push(InterfaceDescriptor {
+        self.record_interface(InterfaceDescriptor {
             id: new_id,
             kind: "websocket".to_string(),
             addr: Some(addr),
@@ -669,7 +714,6 @@ impl BridgeController {
             ifac_name,
             ifac_passphrase,
         });
-        self.save_settings();
         Ok(())
     }
 
@@ -947,5 +991,56 @@ mod tests {
     #[test]
     fn connect_uri_connects_to_listen_port() {
         assert!(GameLauncher::connect_uri(27016).contains(":27016"));
+    }
+
+    fn desc(kind: &str, role: &str, addr: Option<&str>, peer_addr: Option<&str>) -> InterfaceDescriptor {
+        InterfaceDescriptor {
+            id: None,
+            kind: kind.to_string(),
+            role: role.to_string(),
+            addr: addr.map(String::from),
+            peer_addr: peer_addr.map(String::from),
+            ifac_name: None,
+            ifac_passphrase: None,
+        }
+    }
+
+    #[test]
+    fn dedup_interfaces_collapses_repeated_endpoints() {
+        let mut interfaces = vec![
+            desc("tcp", "server", Some("192.168.223.20:4966"), None),
+            desc("tcp", "server", Some("192.168.223.20:4966"), None),
+            desc("udp", "server", Some("0.0.0.0:4966"), Some("192.168.1.217:4966")),
+            desc("tcp", "server", Some("192.168.223.20:4966"), None),
+            desc("udp", "server", Some("0.0.0.0:4966"), Some("192.168.1.217:4966")),
+        ];
+        assert!(dedup_interfaces(&mut interfaces));
+        assert_eq!(interfaces.len(), 2);
+        // A second pass is already clean.
+        assert!(!dedup_interfaces(&mut interfaces));
+        assert_eq!(interfaces.len(), 2);
+    }
+
+    #[test]
+    fn dedup_interfaces_keeps_distinct_endpoints() {
+        let mut interfaces = vec![
+            desc("tcp", "server", Some("192.168.223.20:4966"), None),
+            desc("tcp", "client", Some("192.168.223.20:4966"), None),
+            desc("tcp", "server", Some("192.168.223.21:4966"), None),
+        ];
+        assert!(!dedup_interfaces(&mut interfaces));
+        assert_eq!(interfaces.len(), 3);
+    }
+
+    #[test]
+    fn dedup_interfaces_keeps_last_occurrence_ifac_fields() {
+        let mut stale = desc("tcp", "server", Some("192.168.223.20:4966"), None);
+        stale.ifac_passphrase = Some("old-typo".to_string());
+        let mut fresh = desc("tcp", "server", Some("192.168.223.20:4966"), None);
+        fresh.ifac_passphrase = Some("corrected".to_string());
+        let mut interfaces = vec![stale, fresh];
+        assert!(dedup_interfaces(&mut interfaces));
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(interfaces[0].ifac_passphrase.as_deref(), Some("corrected"));
     }
 }
