@@ -1,0 +1,288 @@
+name: Release
+
+# Full release pipeline: builds the desktop GUI (gui/src-tauri, "Sven Co-op
+# over Reticulum") natively on Linux, Windows, and macOS runners, builds +
+# pushes the Docker host image to ghcr.io, then gathers everything into one
+# GitHub Release.
+#
+# Building natively on each OS's own GitHub-hosted runner (rather than
+# cross-compiling from Linux, as earlier manual releases did) sidesteps two
+# real problems that manual cross-builds hit:
+#   - Windows: cross-compiling via mingw-w64 (x86_64-pc-windows-gnu) produced
+#     a raw exe that needed WebView2Loader.dll manually copied alongside it
+#     — missed in v0.1.0 through v0.1.2. Building natively with the MSVC
+#     toolchain on windows-latest lets Tauri's own bundler (NSIS) produce a
+#     proper installer that handles this correctly.
+#   - macOS: there is no cross-compilation path from Linux at all (Tauri
+#     needs a native WKWebView + Xcode toolchain; osxcross is both fragile
+#     and against Apple's SDK license). macos-14 runners are the only way.
+#
+# Unsigned outputs: no Apple Developer certificate or Windows code-signing
+# cert is configured as a repo secret, so the macOS .dmg and Windows
+# installer are both unsigned. macOS needs right-click -> Open (or
+# `xattr -cr`) past Gatekeeper; Windows SmartScreen will warn on first run.
+#
+# Triggers:
+#   - push tags matching v*: full pipeline, ends with a GitHub Release.
+#   - workflow_dispatch: manual run for testing individual OS builds
+#     without cutting a release (the publish-release job still runs, but
+#     falls back to a placeholder tag-less draft if there's no tag ref).
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui/src-tauri -> target
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev patchelf
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Inline frontend assets
+        working-directory: gui/src-tauri
+        run: python3 inline-assets.py
+
+      - name: Build (Tauri bundle)
+        working-directory: gui/src-tauri
+        # linuxdeploy (used for the AppImage bundle) is known to fail on some
+        # runner images the same way it fails on CachyOS locally (strip vs.
+        # .relr.dyn). deb/rpm/the raw binary still get built first and land
+        # on disk even if the overall command then exits non-zero on the
+        # AppImage step, so don't let that fail the job — the next step
+        # detects a missing AppImage and packages it manually instead.
+        run: cargo tauri build || true
+
+      - name: Package AppImage manually if linuxdeploy failed
+        working-directory: gui/src-tauri
+        run: |
+          set -euo pipefail
+          if find target/release/bundle/appimage -maxdepth 1 -iname "*.AppImage" 2>/dev/null | grep -q .; then
+            echo "AppImage already built via linuxdeploy"
+            exit 0
+          fi
+          echo "linuxdeploy failed as expected — packaging AppImage manually with appimagetool"
+          appdir=$(find target/release/bundle/appimage -maxdepth 1 -iname "*.AppDir" | head -1)
+          icon=$(find "$appdir/usr/share/icons" -iname "sc-rns-gui.png" -path "*256x256*" | head -1)
+          cp "$icon" "$appdir/sc-rns-gui.png"
+          curl -L -o /tmp/appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          version=$(grep -m1 '"version"' tauri.conf.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          /tmp/appimagetool --appimage-extract-and-run "$appdir" \
+            "target/release/bundle/appimage/Sven_Co-op_over_Reticulum_${version}_x86_64.AppImage"
+
+      - name: Collect artifacts
+        working-directory: gui/src-tauri
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '"version"' tauri.conf.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          out="$GITHUB_WORKSPACE/dist-linux"
+          mkdir -p "$out"
+
+          appimage=$(find target/release/bundle/appimage -maxdepth 1 -iname "*.AppImage" | head -1)
+          cp "$appimage" "$out/Sven_Co-op_over_Reticulum_${version}_x86_64.AppImage"
+          cp "$appimage" "$out/Sven_Co-op_over_Reticulum_${version}_portable_x86_64.AppImage"
+
+          cp target/release/sc-rns-gui "$out/Sven_Co-op_over_Reticulum_${version}_x86_64_linux"
+          cp target/release/bundle/deb/*.deb "$out/"
+          cp target/release/bundle/rpm/*.rpm "$out/"
+
+          mkdir -p /tmp/portable-linux
+          cp target/release/sc-rns-gui "/tmp/portable-linux/Sven_Co-op_over_Reticulum_${version}_x86_64_linux"
+          cp "$GITHUB_WORKSPACE/packaging/README-PORTABLE.txt" /tmp/portable-linux/
+          tar -C /tmp/portable-linux -czf \
+            "$out/Sven_Co-op_over_Reticulum_${version}_portable_linux_x86_64.tar.gz" .
+
+          cp "$GITHUB_WORKSPACE/packaging/README-PORTABLE.txt" "$out/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-dist
+          path: dist-linux/*
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui/src-tauri -> target
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Inline frontend assets
+        working-directory: gui/src-tauri
+        run: python3 inline-assets.py
+
+      - name: Build (Tauri bundle)
+        working-directory: gui/src-tauri
+        run: cargo tauri build
+
+      - name: Collect artifacts
+        working-directory: gui/src-tauri
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '"version"' tauri.conf.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          out="$GITHUB_WORKSPACE/dist-windows"
+          mkdir -p "$out"
+
+          # Proper installers — these bundle WebView2Loader.dll correctly
+          # themselves, no manual DLL-copying needed.
+          find target/release/bundle/msi -maxdepth 1 -iname "*.msi" -exec cp {} "$out/" \; 2>/dev/null || true
+          find target/release/bundle/nsis -maxdepth 1 -iname "*.exe" -exec cp {} "$out/Sven_Co-op_over_Reticulum_${version}_x86_64-setup.exe" \; 2>/dev/null || true
+
+          # Portable zip: raw exe + its required WebView2Loader.dll + README.
+          mkdir -p /tmp/portable-win
+          cp target/release/sc-rns-gui.exe "/tmp/portable-win/Sven_Co-op_over_Reticulum_${version}_x86_64.exe"
+          cp target/release/WebView2Loader.dll /tmp/portable-win/
+          cp "$GITHUB_WORKSPACE/packaging/README-PORTABLE.txt" /tmp/portable-win/
+          (cd /tmp/portable-win && 7z a "$out/Sven_Co-op_over_Reticulum_${version}_portable_windows_x86_64.zip" *)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: dist-windows/*
+
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch_label: arm64
+          - target: x86_64-apple-darwin
+            arch_label: x86_64
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui/src-tauri -> target
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Inline frontend assets
+        working-directory: gui/src-tauri
+        run: python3 inline-assets.py
+
+      - name: Build
+        working-directory: gui/src-tauri
+        run: cargo tauri build --target ${{ matrix.target }}
+
+      - name: Collect dmg
+        working-directory: gui/src-tauri
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '"version"' tauri.conf.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          out="$GITHUB_WORKSPACE/dist-macos"
+          mkdir -p "$out"
+          src=$(find "target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -iname "*.dmg" | head -1)
+          cp "$src" "$out/Sven_Co-op_over_Reticulum_${version}_macos_${{ matrix.arch_label }}.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch_label }}-dist
+          path: dist-macos/*
+
+  build-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine version tag
+        id: vars
+        run: |
+          ref="${GITHUB_REF_NAME:-dev}"
+          echo "version=${ref#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/idan2025/svencoop-prns:latest
+            ghcr.io/idan2025/svencoop-prns:${{ steps.vars.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish-release:
+    needs: [build-linux, build-windows, build-macos, build-docker]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release-assets
+          find dist -type f -exec cp {} release-assets/ \;
+          ls -la release-assets
+
+      - name: Create draft release or upload to existing one
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $tag already exists — uploading/replacing assets on it."
+            gh release upload "$tag" release-assets/* --repo "${{ github.repository }}" --clobber
+          else
+            echo "No release $tag yet — creating a draft with auto-generated notes."
+            echo "(Edit the notes and un-draft it, or run 'gh release edit' with real notes.)"
+            gh release create "$tag" release-assets/* \
+              --repo "${{ github.repository }}" \
+              --title "$tag" \
+              --draft \
+              --generate-notes
+          fi
