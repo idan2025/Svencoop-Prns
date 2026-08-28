@@ -274,6 +274,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          # Only the dist artifacts this workflow uploads itself — without a
+          # pattern, download-artifact also grabs incidental ones from other
+          # jobs (docker/build-push-action's GHA-cache backend uploads its
+          # own artifact when cache-to: type=gha is set), which isn't
+          # something we want and has flaked on download before.
+          pattern: "*-dist"
 
       - name: Flatten artifacts
         run: |
