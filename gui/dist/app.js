@@ -2,9 +2,33 @@
 // Transport-agnostic: under the Tauri desktop shell it calls
 // window.__TAURI__.core.invoke; served from the docker host it POSTs to /api.
 // One frontend, two shells.
+//
+// Wrapped in an IIFE so top-level `let`/`const` can't collide with a second
+// script evaluation (WebKitGTK's Tauri webview re-runs inline scripts on
+// early paint in some cases, and a bare top-level `let` throws "Identifier
+// has already been declared" on the second pass — silently breaking every
+// handler below it with no visible error).
+(function () {
 
-const isTauri = !!(window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke);
-const tauriInvoke = (window.__TAURI__?.core?.invoke) || (window.__TAURI__?.invoke);
+window.addEventListener("error", (ev) => {
+  console.error("[sc-rns-gui] uncaught error", ev.error || ev.message);
+  try { toast("GUI error: " + ((ev.error && ev.error.message) || ev.message || "unknown"), "error"); } catch (_) {}
+});
+window.addEventListener("unhandledrejection", (ev) => {
+  console.error("[sc-rns-gui] unhandled rejection", ev.reason);
+  try { toast("GUI error: " + ((ev.reason && ev.reason.message) || ev.reason), "error"); } catch (_) {}
+});
+
+let tauriInvoke = (window.__TAURI__?.core?.invoke) || (window.__TAURI__?.invoke);
+
+// Fallback: if the __TAURI_IIFE__ global isn't ready yet but the internal
+// invoke is available (injected by Tauri's init script before page scripts
+// run), use it directly.
+if (!tauriInvoke && window.__TAURI_INTERNALS__?.invoke) {
+  tauriInvoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
+}
+
+const isTauri = !!tauriInvoke;
 
 const $ = (id) => document.getElementById(id);
 let pollTimer = null;
@@ -58,7 +82,7 @@ function checked(id) {
 
 function optStr(id) {
   const v = val(id, "");
-  return v ? { value: v } : null;
+  return v ? v : null;
 }
 
 // ---- tabs ----
@@ -205,3 +229,5 @@ async function refresh() {
 $("refresh").addEventListener("click", refresh);
 pollTimer = setInterval(refresh, 2000);
 refresh();
+
+})();

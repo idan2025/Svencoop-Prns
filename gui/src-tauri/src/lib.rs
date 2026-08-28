@@ -209,6 +209,7 @@ struct StateSnapshot {
 
 #[tauri::command]
 async fn get_state(state: tauri::State<'_, CtrlState>) -> Result<StateSnapshot, String> {
+    eprintln!("[sc-rns-gui] get_state called");
     with_ctrl(state, |ctrl| {
         Box::pin(async move {
             let s = ctrl.state().await?;
@@ -227,6 +228,13 @@ async fn get_state(state: tauri::State<'_, CtrlState>) -> Result<StateSnapshot, 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "sc_rns_controller=info,sc_rns_bridge=info,personal_rns=warn,sc_rns_gui=info".into()),
+        )
+        .try_init();
+
     tauri::Builder::default()
         .setup(|app| {
             // Bundle dir resolution — portable mode first, OS app-data fallback.
