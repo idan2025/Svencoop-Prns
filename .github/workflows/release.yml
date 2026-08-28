@@ -296,6 +296,12 @@ jobs:
           if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "Release $tag already exists — uploading/replacing assets on it."
             gh release upload "$tag" release-assets/* --repo "${{ github.repository }}" --clobber
+            # Deleting+recreating the tag (e.g. to rebuild the same version
+            # after a fix, without a version bump) can leave the release
+            # sitting as a draft even though it was published before — self
+            # heal that every run rather than silently shipping a draft
+            # nobody can see on the public releases page.
+            gh release edit "$tag" --repo "${{ github.repository }}" --draft=false
           else
             echo "No release $tag yet — creating a draft with auto-generated notes."
             echo "(Edit the notes and un-draft it, or run 'gh release edit' with real notes.)"
