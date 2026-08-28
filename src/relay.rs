@@ -126,7 +126,30 @@ impl BridgeSession {
     }
 
     pub async fn start_server(args: ServerArgs) -> Result<Self> {
-        spawn_bridge_node(BridgeRole::Server, None, move |discovered| async move {
+        // Computed up front (identical inputs to the one built again inside
+        // the spawned node thread below) so it can be threaded into
+        // spawn_bridge_node's `server_hash` param and surfaced via
+        // `BridgeSession::server_hash()` — previously that param was always
+        // `None` here, so the server's own destination hash was computable
+        // but never actually exposed anywhere outside the startup log line.
+        let precomputed_hash = {
+            let identity = load_identity(&args.identity)?;
+            PreConfiguredDestination::Single {
+                app_name: SC_APP_NAME,
+                aspects: &[SC_ASPECT_SERVER],
+                identity,
+                announce_app_data: b"sc-rns-bridge",
+                proof: ProofStrategy::ProveAll,
+                link_requests: LinkRequestPolicy::AcceptAll,
+                ratchet: RatchetPolicy::NoRatchets,
+                resource_strategy: ResourceStrategy::AcceptNone,
+                maximum_request_bytes: Default::default(),
+                request_endpoints: ServeMyRequestEndpoints::No,
+            }
+            .destination_hash()
+            .map_err(|e| anyhow!("invalid destination name: {e:?}"))?
+        };
+        spawn_bridge_node(BridgeRole::Server, Some(precomputed_hash), move |discovered| async move {
             let identity = load_identity(&args.identity)?;
             let destination = PreConfiguredDestination::Single {
                 app_name: SC_APP_NAME,

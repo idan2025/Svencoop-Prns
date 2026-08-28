@@ -10,12 +10,14 @@
 //! headless (e.g. on `.135`) — the GUI shell is built separately where the
 //! webview stack exists.
 
+pub mod a2s;
 pub mod controller;
 pub mod ds;
 pub mod game;
 pub mod server_entry;
 pub mod steamcmd;
 
+pub use a2s::{A2sInfo, A2sPlayer, A2sStats};
 pub use controller::{BridgeController, ControllerState, InterfaceDescriptor, InterfaceInfo, Settings};
 pub use ds::{DsManager, DsStartArgs, DsStatus};
 pub use game::GameLauncher;

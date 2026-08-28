@@ -113,7 +113,8 @@ select option {
 }
 input[type="checkbox"] { margin-left: 6px; }
 
-.row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+.row input { flex: 1; min-width: 120px; width: auto; margin-top: 0; }
 button {
   background: var(--accent);
   color: #fff;

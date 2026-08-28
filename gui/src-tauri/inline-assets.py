@@ -102,6 +102,15 @@ __CSS__
           </div>
           <p class="hint">Lists <code>.bsp</code> files actually installed under <code>svencoop/maps/</code>. Campaign maps often <code>changelevel</code> into <code>sp_campaign_portal</code> on their own when a round ends — that's the game's own campaign flow, not a bridge setting.</p>
         </fieldset>
+        <fieldset id="ds-stats-box" hidden>
+          <legend>Live server stats</legend>
+          <p id="ds-stats-summary" class="hint"></p>
+          <table id="ds-players-table">
+            <thead><tr><th>Player</th><th>Score</th><th>Time connected</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p id="ds-players-empty" class="hint">No players connected.</p>
+        </fieldset>
         <p id="resume-errors" class="hint" hidden style="color: var(--danger)"></p>
       </div>
 
@@ -119,6 +128,13 @@ __CSS__
           <button id="srv-stop" class="danger">Stop</button>
         </div>
         <p id="srv-status-line"></p>
+        <div id="srv-hash-box" hidden>
+          <label>Server hash — give this to players</label>
+          <div class="row">
+            <input id="srv-hash" type="text" readonly />
+            <button id="srv-hash-copy">Copy</button>
+          </div>
+        </div>
         <p class="hint">Independent of the Client tab — both can run at once (on different ports) if you want to host and connect out from the same machine.</p>
       </div>
 

@@ -41,7 +41,7 @@ function toast(msg, kind = "info") {
   t._timer = setTimeout(() => { t.className = ""; t.textContent = ""; }, 4000);
 }
 
-async function call(cmd, args = {}) {
+async function call(cmd, args = {}, opts = {}) {
   try {
     if (isTauri) {
       return await tauriInvoke(cmd, args);
@@ -59,7 +59,10 @@ async function call(cmd, args = {}) {
     const ct = r.headers.get("content-type") || "";
     return ct.includes("json") ? await r.json() : await r.text();
   } catch (e) {
-    toast(String(e), "error");
+    // opts.silent: for background polling where a routine miss (e.g. DS
+    // stats queried a beat before the UDP listener is ready) shouldn't
+    // spam a toast every couple of seconds.
+    if (!opts.silent) toast(String(e), "error");
     throw e;
   }
 }
@@ -170,6 +173,20 @@ $("srv-start").addEventListener("click", async () => {
 });
 $("srv-restart").addEventListener("click", async () => { await call("restart_bridge_server"); toast("Bridge server restarted."); });
 $("srv-stop").addEventListener("click", async () => { await call("stop_bridge_server"); toast("Bridge server stopped."); });
+$("srv-hash-copy").addEventListener("click", async () => {
+  const value = $("srv-hash").value;
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    toast("Server hash copied.");
+  } catch (e) {
+    // Clipboard API needs a secure context — not guaranteed when the web
+    // panel is reached over plain http from a non-localhost address.
+    // Fall back to select-for-manual-copy instead of failing silently.
+    $("srv-hash").select();
+    toast("Couldn't copy automatically — selected it, press Ctrl+C.", "info");
+  }
+});
 
 // ---- client ----
 $("cli-start").addEventListener("click", async () => {
@@ -261,9 +278,69 @@ function serverRow(s) {
   return tr;
 }
 
+let formsPrefilled = false;
+
+async function refreshDsStats(running) {
+  const box = $("ds-stats-box");
+  if (!running) {
+    box.hidden = true;
+    return;
+  }
+  let stats;
+  try {
+    // silent: this polls every cycle the DS is up — a routine miss (e.g.
+    // queried a beat before the UDP listener is ready right after start,
+    // or right as the map changes) shouldn't spam a toast.
+    stats = await call("ds_query", {}, { silent: true });
+  } catch (e) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const info = stats.info;
+  const bits = [
+    `${info.server_name} — map ${info.map}`,
+    `${info.players}/${info.max_players} players${info.bots ? ` (${info.bots} bots)` : ""}`,
+    `${info.server_type}/${info.environment}${info.vac_secured ? ", VAC secured" : ""}`,
+  ];
+  $("ds-stats-summary").textContent = bits.join(" — ");
+  const tbody = $("ds-players-table").querySelector("tbody");
+  tbody.innerHTML = "";
+  const players = stats.players_list || [];
+  $("ds-players-empty").style.display = players.length ? "none" : "block";
+  players.forEach((p) => {
+    const tr = document.createElement("tr");
+    const mins = Math.floor(p.duration_secs / 60);
+    const secs = Math.floor(p.duration_secs % 60);
+    const time = `${mins}:${String(secs).padStart(2, "0")}`;
+    tr.innerHTML = `<td>${p.name || "—"}</td><td>${p.score}</td><td>${time}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
 async function refresh() {
   try {
     const s = await call("get_state");
+    // Refill the server/client forms with whatever's actually persisted —
+    // once, so it doesn't fight with the operator mid-edit.
+    if (!formsPrefilled) {
+      formsPrefilled = true;
+      const sc = s.server_config;
+      if (sc) {
+        $("srv-schost").value = sc.sc_host ?? "127.0.0.1";
+        $("srv-scport").value = sc.sc_port ?? 27015;
+        $("srv-tcp").value = sc.tcp ?? "";
+        $("srv-auto").checked = !!sc.auto;
+        $("srv-ann").value = sc.announce_interval ?? 15;
+      }
+      const cc = s.client_config;
+      if (cc) {
+        $("cli-listen").value = cc.listen_port ?? 27015;
+        $("cli-tcp").value = cc.tcp ?? "";
+        $("cli-auto").checked = !!cc.auto;
+        $("cli-hash").value = cc.server_hash ?? "";
+      }
+    }
     // Server browser.
     const tbody = $("server-table").querySelector("tbody");
     tbody.innerHTML = "";
@@ -299,6 +376,13 @@ async function refresh() {
     // Bridge server / client status — independent of each other.
     $("srv-status-line").textContent = s.server_running ? "Running." : "Stopped.";
     $("cli-status-line").textContent = s.client_running ? "Running." : "Stopped.";
+    if (s.server_hash) {
+      $("srv-hash-box").hidden = false;
+      $("srv-hash").value = s.server_hash;
+    } else {
+      $("srv-hash-box").hidden = true;
+    }
+    refreshDsStats(!!ds.running);
     // Resume warnings (rare): surface inline so the operator notices.
     const re = $("resume-errors");
     if (re) {

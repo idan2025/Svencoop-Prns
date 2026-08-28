@@ -156,6 +156,19 @@ pub struct ControllerState {
     pub bridge_role: Option<String>,
     pub server_running: bool,
     pub client_running: bool,
+    /// This node's own announced destination hash, hex-encoded — what you
+    /// give players so they can connect. `None` until the server session is
+    /// up (it's derived from the identity file, so it's stable across
+    /// restarts as long as `server.identity` persists, but it was
+    /// previously only ever visible by reading the process logs).
+    pub server_hash: Option<String>,
+    /// Last-used (persisted) server/client start args, so the GUI can
+    /// refill its form fields with what's actually configured/running
+    /// instead of resetting to blank defaults on every page load — the
+    /// backend already remembered these across restarts, the form just
+    /// never reflected it.
+    pub server_config: Option<ServerArgs>,
+    pub client_config: Option<ClientArgs>,
     pub ds: DsStatus,
     pub servers: Vec<ServerEntry>,
     pub interfaces: Vec<InterfaceInfo>,
@@ -729,6 +742,19 @@ impl BridgeController {
         self.ds.status()
     }
 
+    /// Live server stats (player list, map, counts) via a direct A2S query
+    /// to the running DS — same protocol any server browser uses, no RCON
+    /// or game-side integration needed.
+    pub async fn ds_query(&self) -> Result<crate::a2s::A2sStats> {
+        let status = self.ds.status();
+        if !status.running {
+            anyhow::bail!("dedicated server is not running");
+        }
+        let port = status.port.ok_or_else(|| anyhow!("dedicated server has no port recorded"))?;
+        let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse()?;
+        crate::a2s::query(addr).await
+    }
+
     /// Change the running DS's map live (`changelevel <map>`), without
     /// restarting the whole process. Persists the new map so a later
     /// restart/resume comes back on it rather than the original start map.
@@ -801,11 +827,19 @@ impl BridgeController {
         let servers = self.list_servers().await?;
         let interfaces = self.list_interfaces().unwrap_or_default();
         let ds = self.ds.status();
+        let server_hash = self
+            .server_session
+            .as_ref()
+            .and_then(|s| s.server_hash())
+            .map(|h| hex::encode(h.as_bytes()));
         Ok(ControllerState {
             bridge_running: server_running || client_running,
             bridge_role,
             server_running,
             client_running,
+            server_hash,
+            server_config: self.last_server_args.clone(),
+            client_config: self.last_client_args.clone(),
             ds,
             servers,
             interfaces,

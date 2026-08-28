@@ -229,6 +229,11 @@ async fn ds_status(state: tauri::State<'_, CtrlState>) -> Result<sc_rns_controll
 }
 
 #[tauri::command]
+async fn ds_query(state: tauri::State<'_, CtrlState>) -> Result<sc_rns_controller::A2sStats, String> {
+    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.ds_query().await })).await
+}
+
+#[tauri::command]
 async fn ds_changelevel(state: tauri::State<'_, CtrlState>, map: String) -> Result<(), String> {
     with_ctrl(state, |ctrl| Box::pin(async move { ctrl.ds_changelevel(map).await })).await
 }
@@ -258,6 +263,9 @@ struct StateSnapshot {
     bridge_role: Option<String>,
     server_running: bool,
     client_running: bool,
+    server_hash: Option<String>,
+    server_config: Option<ServerArgs>,
+    client_config: Option<ClientArgs>,
     ds: sc_rns_controller::DsStatus,
     servers: Vec<sc_rns_controller::ServerEntry>,
     interfaces: Vec<sc_rns_controller::InterfaceInfo>,
@@ -276,6 +284,9 @@ async fn get_state(state: tauri::State<'_, CtrlState>) -> Result<StateSnapshot, 
                 bridge_role: s.bridge_role,
                 server_running: s.server_running,
                 client_running: s.client_running,
+                server_hash: s.server_hash,
+                server_config: s.server_config,
+                client_config: s.client_config,
                 ds: s.ds,
                 servers: s.servers,
                 interfaces: s.interfaces,
@@ -339,6 +350,7 @@ pub fn run() {
             ds_start,
             ds_stop,
             ds_status,
+            ds_query,
             ds_changelevel,
             ds_set_cheats,
             ds_list_maps,

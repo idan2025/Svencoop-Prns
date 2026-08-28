@@ -146,6 +146,10 @@ async fn api_dispatch(
             let maps = ctrl.ds_list_maps().await;
             Ok(Json(json!(maps)))
         }
+        "ds_query" => {
+            let stats = ctrl.ds_query().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            Ok(Json(json!(stats)))
+        }
 
         // ---- bridge server ----
         "start_bridge_server" => {
