@@ -436,6 +436,13 @@ async fn ds_background(
         info!(created, "pre-created empty soundcache file(s)");
     }
 
+    // Stock mapcycle.txt ships with "-sp_campaign_portal" (a campaign hub
+    // screen, not a playable coop map) as its first entry, so an empty
+    // server times out back onto it. Strip it and put a real map first.
+    if fix_mapcycle_default(&install_dir).await {
+        info!("removed sp_campaign_portal from mapcycle.txt default rotation");
+    }
+
     if cancel.load(Ordering::Relaxed) {
         set_idle(&live);
         return;
@@ -643,6 +650,29 @@ async fn precreate_soundcache(install_dir: &Path) -> usize {
     created
 }
 
+/// Removes `-sp_campaign_portal` / `sp_campaign_portal` from
+/// `svencoop/mapcycle.txt` and, if `svencoop1` is present, moves it to the
+/// front. Only touches the file if the portal entry is actually present, so
+/// a deliberately customized mapcycle is left alone. Returns `true` if the
+/// file was rewritten.
+async fn fix_mapcycle_default(install_dir: &Path) -> bool {
+    let path = install_dir.join("svencoop").join("mapcycle.txt");
+    let Ok(contents) = tokio::fs::read_to_string(&path).await else {
+        return false;
+    };
+    let is_portal = |line: &str| matches!(line.trim(), "-sp_campaign_portal" | "sp_campaign_portal");
+    if !contents.lines().any(is_portal) {
+        return false;
+    }
+    let mut lines: Vec<&str> = contents.lines().filter(|l| !is_portal(l)).collect();
+    if let Some(pos) = lines.iter().position(|l| l.trim() == "svencoop1") {
+        lines.swap(0, pos);
+    }
+    let mut new_contents = lines.join("\n");
+    new_contents.push('\n');
+    tokio::fs::write(&path, new_contents).await.is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -702,6 +732,36 @@ mod tests {
         // Second run is a no-op (already present).
         let n2 = precreate_soundcache(install).await;
         assert_eq!(n2, 0);
+    }
+
+    #[tokio::test]
+    async fn fix_mapcycle_default_strips_portal_and_promotes_svencoop1() {
+        let tmp = tempfile::tempdir().unwrap();
+        let install = tmp.path();
+        let svencoop = install.join("svencoop");
+        tokio::fs::create_dir_all(&svencoop).await.unwrap();
+        let cycle = svencoop.join("mapcycle.txt");
+        tokio::fs::write(&cycle, "-sp_campaign_portal\nabandoned\nsvencoop1\ncrystal\n")
+            .await
+            .unwrap();
+        assert!(fix_mapcycle_default(install).await);
+        let fixed = tokio::fs::read_to_string(&cycle).await.unwrap();
+        assert_eq!(fixed, "svencoop1\nabandoned\ncrystal\n");
+        // Idempotent: no portal entry left, second run is a no-op.
+        assert!(!fix_mapcycle_default(install).await);
+    }
+
+    #[tokio::test]
+    async fn fix_mapcycle_default_leaves_custom_cycle_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let install = tmp.path();
+        let svencoop = install.join("svencoop");
+        tokio::fs::create_dir_all(&svencoop).await.unwrap();
+        let cycle = svencoop.join("mapcycle.txt");
+        tokio::fs::write(&cycle, "crystal\nabandoned\n").await.unwrap();
+        assert!(!fix_mapcycle_default(install).await);
+        let unchanged = tokio::fs::read_to_string(&cycle).await.unwrap();
+        assert_eq!(unchanged, "crystal\nabandoned\n");
     }
 
     #[test]
