@@ -83,7 +83,7 @@ code { font-family: ui-monospace, monospace; color: var(--accent); }
 #tab-nav button.active { color: var(--text); border-color: var(--accent); }
 
 label { display: block; font-size: 13px; color: var(--muted); margin: 8px 0; }
-input[type="text"], input[type="number"], input[type="password"] {
+input[type="text"], input[type="number"], input[type="password"], select {
   display: block;
   width: 100%;
   margin-top: 4px;
@@ -222,6 +222,8 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
           <button id="srv-restart">Restart</button>
           <button id="srv-stop" class="danger">Stop</button>
         </div>
+        <p id="srv-status-line"></p>
+        <p class="hint">Independent of the Client tab — both can run at once (on different ports) if you want to host and connect out from the same machine.</p>
       </div>
 
       <!-- Client tab -->
@@ -236,18 +238,25 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
           <button id="cli-restart">Restart</button>
           <button id="cli-stop" class="danger">Stop</button>
         </div>
-        <p class="hint">Then pick a server in the browser and click Connect — it launches the game joined to localhost:&lt;listen port&gt;.</p>
+        <p id="cli-status-line"></p>
+        <p class="hint">Then pick a server in the browser and click Connect — it launches the game joined to localhost:&lt;listen port&gt;. Independent of the Bridge Server tab — both can run at once (on different ports).</p>
       </div>
 
       <!-- Interfaces tab -->
       <div class="tab" id="tab-ifaces" hidden>
         <h2>Reticulum interfaces</h2>
         <table id="iface-table">
-          <thead><tr><th>Name</th><th>Mode</th><th>State</th><th>Links</th><th>RX</th><th>TX</th><th></th></tr></thead>
+          <thead><tr><th>Role</th><th>Name</th><th>Mode</th><th>State</th><th>Links</th><th>RX</th><th>TX</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
         <fieldset>
           <legend>Add interface</legend>
+          <label>Attach to
+            <select id="if-role">
+              <option value="server">Bridge Server</option>
+              <option value="client">Client</option>
+            </select>
+          </label>
           <label>TCP host:port (0.0.0.0:PORT to bind) <input id="if-tcp" type="text" placeholder="0.0.0.0:4234" /></label>
           <label>UDP local host:port <input id="if-udp-local" type="text" placeholder="0.0.0.0:4235" /></label>
           <label>UDP peer host:port <input id="if-udp-peer" type="text" placeholder="203.0.113.5:4235" /></label>
@@ -407,6 +416,7 @@ $("cli-stop").addEventListener("click", async () => { await call("stop_client");
 $("if-add-tcp").addEventListener("click", async () => {
   await call("add_interface_tcp", {
     addr: val("if-tcp", ""),
+    role: val("if-role", "server"),
     ifacName: optStr("if-ifac"),
     ifacPassphrase: optStr("if-ifac-pass"),
   });
@@ -414,6 +424,7 @@ $("if-add-tcp").addEventListener("click", async () => {
 });
 $("if-add-auto").addEventListener("click", async () => {
   await call("add_interface_auto", {
+    role: val("if-role", "server"),
     ifacName: optStr("if-ifac"),
     ifacPassphrase: optStr("if-ifac-pass"),
   });
@@ -423,6 +434,7 @@ $("if-add-udp").addEventListener("click", async () => {
   await call("add_interface_udp", {
     local: val("if-udp-local", ""),
     peer: val("if-udp-peer", ""),
+    role: val("if-role", "server"),
     ifacName: optStr("if-ifac"),
     ifacPassphrase: optStr("if-ifac-pass"),
   });
@@ -431,6 +443,7 @@ $("if-add-udp").addEventListener("click", async () => {
 $("if-add-ws").addEventListener("click", async () => {
   await call("add_interface_websocket", {
     addr: val("if-ws", ""),
+    role: val("if-role", "server"),
     ifacName: optStr("if-ifac"),
     ifacPassphrase: optStr("if-ifac-pass"),
   });
@@ -439,7 +452,8 @@ $("if-add-ws").addEventListener("click", async () => {
 
 function ifaceRow(i) {
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td>${i.name || "—"}</td><td>${i.mode}</td><td>${i.connection}</td><td>${i.links}</td><td>${i.rx_bytes}</td><td>${i.tx_bytes}</td>`;
+  const roleLabel = i.role === "client" ? "Client" : "Server";
+  tr.innerHTML = `<td>${roleLabel}</td><td>${i.name || "—"}</td><td>${i.mode}</td><td>${i.connection}</td><td>${i.links}</td><td>${i.rx_bytes}</td><td>${i.tx_bytes}</td>`;
   const td = document.createElement("td");
   const rename = document.createElement("button");
   rename.textContent = "Rename";
@@ -504,6 +518,9 @@ async function refresh() {
     $("ds-status-line").textContent = ds.running
       ? `Running on port ${ds.port ?? "?"} (${ds.install_dir ?? "?"})`
       : (phase === "error" ? ("Error: " + (ds.last_line || "unknown")) : "Stopped.");
+    // Bridge server / client status — independent of each other.
+    $("srv-status-line").textContent = s.server_running ? "Running." : "Stopped.";
+    $("cli-status-line").textContent = s.client_running ? "Running." : "Stopped.";
     // Resume warnings (rare): surface inline so the operator notices.
     const re = $("resume-errors");
     if (re) {

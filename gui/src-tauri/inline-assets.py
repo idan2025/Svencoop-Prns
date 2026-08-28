@@ -105,6 +105,8 @@ __CSS__
           <button id="srv-restart">Restart</button>
           <button id="srv-stop" class="danger">Stop</button>
         </div>
+        <p id="srv-status-line"></p>
+        <p class="hint">Independent of the Client tab — both can run at once (on different ports) if you want to host and connect out from the same machine.</p>
       </div>
 
       <!-- Client tab -->
@@ -119,18 +121,25 @@ __CSS__
           <button id="cli-restart">Restart</button>
           <button id="cli-stop" class="danger">Stop</button>
         </div>
-        <p class="hint">Then pick a server in the browser and click Connect — it launches the game joined to localhost:&lt;listen port&gt;.</p>
+        <p id="cli-status-line"></p>
+        <p class="hint">Then pick a server in the browser and click Connect — it launches the game joined to localhost:&lt;listen port&gt;. Independent of the Bridge Server tab — both can run at once (on different ports).</p>
       </div>
 
       <!-- Interfaces tab -->
       <div class="tab" id="tab-ifaces" hidden>
         <h2>Reticulum interfaces</h2>
         <table id="iface-table">
-          <thead><tr><th>Name</th><th>Mode</th><th>State</th><th>Links</th><th>RX</th><th>TX</th><th></th></tr></thead>
+          <thead><tr><th>Role</th><th>Name</th><th>Mode</th><th>State</th><th>Links</th><th>RX</th><th>TX</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
         <fieldset>
           <legend>Add interface</legend>
+          <label>Attach to
+            <select id="if-role">
+              <option value="server">Bridge Server</option>
+              <option value="client">Client</option>
+            </select>
+          </label>
           <label>TCP host:port (0.0.0.0:PORT to bind) <input id="if-tcp" type="text" placeholder="0.0.0.0:4234" /></label>
           <label>UDP local host:port <input id="if-udp-local" type="text" placeholder="0.0.0.0:4235" /></label>
           <label>UDP peer host:port <input id="if-udp-peer" type="text" placeholder="203.0.113.5:4235" /></label>

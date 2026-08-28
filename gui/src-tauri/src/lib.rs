@@ -129,11 +129,12 @@ async fn list_interfaces(state: tauri::State<'_, CtrlState>) -> Result<Vec<sc_rn
 async fn add_interface_tcp(
     state: tauri::State<'_, CtrlState>,
     addr: String,
+    role: String,
     ifac_name: Option<String>,
     ifac_passphrase: Option<String>,
 ) -> Result<(), String> {
     with_ctrl(state, |ctrl| {
-        Box::pin(async move { ctrl.add_interface_tcp(addr, ifac_name, ifac_passphrase).await })
+        Box::pin(async move { ctrl.add_interface_tcp(addr, role, ifac_name, ifac_passphrase).await })
     })
     .await
 }
@@ -141,10 +142,11 @@ async fn add_interface_tcp(
 #[tauri::command]
 async fn add_interface_auto(
     state: tauri::State<'_, CtrlState>,
+    role: String,
     ifac_name: Option<String>,
     ifac_passphrase: Option<String>,
 ) -> Result<(), String> {
-    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.add_interface_auto(ifac_name, ifac_passphrase) })).await
+    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.add_interface_auto(role, ifac_name, ifac_passphrase) })).await
 }
 
 #[tauri::command]
@@ -152,11 +154,12 @@ async fn add_interface_udp(
     state: tauri::State<'_, CtrlState>,
     local: String,
     peer: String,
+    role: String,
     ifac_name: Option<String>,
     ifac_passphrase: Option<String>,
 ) -> Result<(), String> {
     with_ctrl(state, |ctrl| {
-        Box::pin(async move { ctrl.add_interface_udp(local, peer, ifac_name, ifac_passphrase).await })
+        Box::pin(async move { ctrl.add_interface_udp(local, peer, role, ifac_name, ifac_passphrase).await })
     })
     .await
 }
@@ -165,11 +168,12 @@ async fn add_interface_udp(
 async fn add_interface_websocket(
     state: tauri::State<'_, CtrlState>,
     addr: String,
+    role: String,
     ifac_name: Option<String>,
     ifac_passphrase: Option<String>,
 ) -> Result<(), String> {
     with_ctrl(state, |ctrl| {
-        Box::pin(async move { ctrl.add_interface_websocket(addr, ifac_name, ifac_passphrase).await })
+        Box::pin(async move { ctrl.add_interface_websocket(addr, role, ifac_name, ifac_passphrase).await })
     })
     .await
 }
@@ -235,6 +239,8 @@ async fn connect_and_launch(state: tauri::State<'_, CtrlState>, server_hash: Str
 struct StateSnapshot {
     bridge_running: bool,
     bridge_role: Option<String>,
+    server_running: bool,
+    client_running: bool,
     ds: sc_rns_controller::DsStatus,
     servers: Vec<sc_rns_controller::ServerEntry>,
     interfaces: Vec<sc_rns_controller::InterfaceInfo>,
@@ -251,6 +257,8 @@ async fn get_state(state: tauri::State<'_, CtrlState>) -> Result<StateSnapshot, 
             Ok(StateSnapshot {
                 bridge_running: s.bridge_running,
                 bridge_role: s.bridge_role,
+                server_running: s.server_running,
+                client_running: s.client_running,
                 ds: s.ds,
                 servers: s.servers,
                 interfaces: s.interfaces,

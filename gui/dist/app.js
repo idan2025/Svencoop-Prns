@@ -138,6 +138,7 @@ $("cli-stop").addEventListener("click", async () => { await call("stop_client");
 $("if-add-tcp").addEventListener("click", async () => {
   await call("add_interface_tcp", {
     addr: val("if-tcp", ""),
+    role: val("if-role", "server"),
     ifacName: optStr("if-ifac"),
     ifacPassphrase: optStr("if-ifac-pass"),
   });
@@ -145,6 +146,7 @@ $("if-add-tcp").addEventListener("click", async () => {
 });
 $("if-add-auto").addEventListener("click", async () => {
   await call("add_interface_auto", {
+    role: val("if-role", "server"),
     ifacName: optStr("if-ifac"),
     ifacPassphrase: optStr("if-ifac-pass"),
   });
@@ -154,6 +156,7 @@ $("if-add-udp").addEventListener("click", async () => {
   await call("add_interface_udp", {
     local: val("if-udp-local", ""),
     peer: val("if-udp-peer", ""),
+    role: val("if-role", "server"),
     ifacName: optStr("if-ifac"),
     ifacPassphrase: optStr("if-ifac-pass"),
   });
@@ -162,6 +165,7 @@ $("if-add-udp").addEventListener("click", async () => {
 $("if-add-ws").addEventListener("click", async () => {
   await call("add_interface_websocket", {
     addr: val("if-ws", ""),
+    role: val("if-role", "server"),
     ifacName: optStr("if-ifac"),
     ifacPassphrase: optStr("if-ifac-pass"),
   });
@@ -170,7 +174,8 @@ $("if-add-ws").addEventListener("click", async () => {
 
 function ifaceRow(i) {
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td>${i.name || "—"}</td><td>${i.mode}</td><td>${i.connection}</td><td>${i.links}</td><td>${i.rx_bytes}</td><td>${i.tx_bytes}</td>`;
+  const roleLabel = i.role === "client" ? "Client" : "Server";
+  tr.innerHTML = `<td>${roleLabel}</td><td>${i.name || "—"}</td><td>${i.mode}</td><td>${i.connection}</td><td>${i.links}</td><td>${i.rx_bytes}</td><td>${i.tx_bytes}</td>`;
   const td = document.createElement("td");
   const rename = document.createElement("button");
   rename.textContent = "Rename";
@@ -235,6 +240,9 @@ async function refresh() {
     $("ds-status-line").textContent = ds.running
       ? `Running on port ${ds.port ?? "?"} (${ds.install_dir ?? "?"})`
       : (phase === "error" ? ("Error: " + (ds.last_line || "unknown")) : "Stopped.");
+    // Bridge server / client status — independent of each other.
+    $("srv-status-line").textContent = s.server_running ? "Running." : "Stopped.";
+    $("cli-status-line").textContent = s.client_running ? "Running." : "Stopped.";
     // Resume warnings (rare): surface inline so the operator notices.
     const re = $("resume-errors");
     if (re) {

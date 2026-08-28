@@ -1,5 +1,8 @@
-//! The platform orchestrator: owns a running [`BridgeSession`] (server or
-//! client role), a [`DsManager`], and ties them together for the GUI.
+//! The platform orchestrator: owns up to two running [`BridgeSession`]s —
+//! one server-role and one client-role, independent of each other — plus a
+//! [`DsManager`], and ties them together for the GUI. Server and client are
+//! separate Reticulum nodes (own identity, own interfaces) under the hood,
+//! so running both at once just needs non-conflicting ports.
 //!
 //! The GUI (a thin Tauri shell) holds this behind an `Arc<Mutex<>>` and calls
 //! one method per user action. Every method is `async + Result`-returning so
@@ -35,6 +38,11 @@ pub struct InterfaceDescriptor {
     pub id: Option<String>,
     /// `"tcp"`, `"udp"`, `"websocket"`, or `"auto"`.
     pub kind: String,
+    /// Which running session this interface is attached to: `"server"` or
+    /// `"client"`. Defaults to `"server"` for descriptors saved before dual
+    /// sessions existed, when there was only ever one to attach to.
+    #[serde(default = "default_role")]
+    pub role: String,
     /// `host:port` for tcp; the local bind `host:port` for udp; a
     /// `ws://`/`wss://` target URL (client) or bind `host:port` (server) for
     /// websocket; absent for auto.
@@ -54,6 +62,10 @@ pub struct InterfaceDescriptor {
     pub ifac_passphrase: Option<String>,
 }
 
+fn default_role() -> String {
+    "server".to_string()
+}
+
 /// Persisted operator choices, written to `<bundle>/settings.json` so the host
 /// resumes its last state after a container restart/recreate (as long as the
 /// volume isn't wiped). Best-effort: a missing/corrupt file is treated as
@@ -69,6 +81,13 @@ pub struct Settings {
     /// Whether the bridge server should be running on resume.
     #[serde(default)]
     pub bridge_running: bool,
+    /// Last bridge-client args, independent of the server (the same process
+    /// can run both roles at once, on different ports).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client: Option<ClientArgs>,
+    /// Whether the bridge client should be running on resume.
+    #[serde(default)]
+    pub client_running: bool,
     /// Last dedicated-server args.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ds: Option<DsStartArgs>,
@@ -114,6 +133,8 @@ fn load_settings(path: &PathBuf) -> Option<Settings> {
 pub struct InterfaceInfo {
     /// Interface id as hex (stable identifier for remove/rename).
     pub id: String,
+    /// Which session this interface belongs to: `"server"` or `"client"`.
+    pub role: String,
     /// Human-readable name, if set.
     pub name: Option<String>,
     /// Interface mode (e.g. Access, Focus, Transport) — `Debug` render.
@@ -128,8 +149,13 @@ pub struct InterfaceInfo {
 /// A poll-able snapshot of everything the GUI shows at once.
 #[derive(Debug, Clone, Serialize)]
 pub struct ControllerState {
+    /// True if either the server or the client session is running.
     pub bridge_running: bool,
+    /// `"Server"`, `"Client"`, `"Server + Client"`, or `None` if neither is
+    /// running — for the status pill.
     pub bridge_role: Option<String>,
+    pub server_running: bool,
+    pub client_running: bool,
     pub ds: DsStatus,
     pub servers: Vec<ServerEntry>,
     pub interfaces: Vec<InterfaceInfo>,
@@ -139,11 +165,13 @@ pub struct ControllerState {
     pub resume_errors: Vec<String>,
 }
 
-/// One running bridge + the DS manager.
+/// Up to two running bridge sessions (server + client, independent) + the DS
+/// manager.
 pub struct BridgeController {
     bundle_dir: PathBuf,
     ds: DsManager,
-    session: Option<BridgeSession>,
+    server_session: Option<BridgeSession>,
+    client_session: Option<BridgeSession>,
     last_server_args: Option<ServerArgs>,
     last_client_args: Option<ClientArgs>,
     settings: Settings,
@@ -157,12 +185,14 @@ impl BridgeController {
         // Seed the in-memory "last args" from persisted settings so the panel
         // opens showing the real last config, not defaults.
         let last_server_args = settings.bridge.clone();
+        let last_client_args = settings.client.clone();
         Self {
             ds: DsManager::new(bundle_dir.clone()),
             bundle_dir,
-            session: None,
+            server_session: None,
+            client_session: None,
             last_server_args,
-            last_client_args: None,
+            last_client_args,
             settings,
             resume_errors: Vec::new(),
         }
@@ -198,7 +228,9 @@ impl BridgeController {
         self.resume_errors.clear();
         let s = self.settings.clone();
 
-        // Bridge server first (interfaces attach to its node).
+        // Bridge server and client first (interfaces attach to one or the
+        // other's node) — independent of each other, so both get a chance
+        // to come up even if one fails.
         if s.bridge_running {
             if let Some(args) = s.bridge.clone() {
                 if let Err(e) = self.start_bridge_server(args).await {
@@ -206,33 +238,39 @@ impl BridgeController {
                 }
             }
         }
-
-        // Re-attach saved extra interfaces (only meaningful if bridge is up).
-        if self.session.is_some() {
-            for desc in s.interfaces.clone() {
-                let res = match desc.kind.as_str() {
-                    "tcp" => {
-                        let addr = desc.addr.clone().unwrap_or_default();
-                        self.add_interface_tcp(addr, desc.ifac_name.clone(), desc.ifac_passphrase.clone())
-                            .await
-                    }
-                    "auto" => self.add_interface_auto(desc.ifac_name.clone(), desc.ifac_passphrase.clone()),
-                    "udp" => {
-                        let local = desc.addr.clone().unwrap_or_default();
-                        let peer = desc.peer_addr.clone().unwrap_or_default();
-                        self.add_interface_udp(local, peer, desc.ifac_name.clone(), desc.ifac_passphrase.clone())
-                            .await
-                    }
-                    "websocket" => {
-                        let addr = desc.addr.clone().unwrap_or_default();
-                        self.add_interface_websocket(addr, desc.ifac_name.clone(), desc.ifac_passphrase.clone())
-                            .await
-                    }
-                    other => Err(anyhow!("unknown interface kind {other} in settings")),
-                };
-                if let Err(e) = res {
-                    self.resume_errors.push(format!("interface {:?}: {e}", desc.addr_or_kind()));
+        if s.client_running {
+            if let Some(args) = s.client.clone() {
+                if let Err(e) = self.start_client(args).await {
+                    self.resume_errors.push(format!("bridge client: {e}"));
                 }
+            }
+        }
+
+        // Re-attach saved extra interfaces to whichever session each one was
+        // recorded against.
+        for desc in s.interfaces.clone() {
+            let res = match desc.kind.as_str() {
+                "tcp" => {
+                    let addr = desc.addr.clone().unwrap_or_default();
+                    self.add_interface_tcp(addr, desc.role.clone(), desc.ifac_name.clone(), desc.ifac_passphrase.clone())
+                        .await
+                }
+                "auto" => self.add_interface_auto(desc.role.clone(), desc.ifac_name.clone(), desc.ifac_passphrase.clone()),
+                "udp" => {
+                    let local = desc.addr.clone().unwrap_or_default();
+                    let peer = desc.peer_addr.clone().unwrap_or_default();
+                    self.add_interface_udp(local, peer, desc.role.clone(), desc.ifac_name.clone(), desc.ifac_passphrase.clone())
+                        .await
+                }
+                "websocket" => {
+                    let addr = desc.addr.clone().unwrap_or_default();
+                    self.add_interface_websocket(addr, desc.role.clone(), desc.ifac_name.clone(), desc.ifac_passphrase.clone())
+                        .await
+                }
+                other => Err(anyhow!("unknown interface kind {other} in settings")),
+            };
+            if let Err(e) = res {
+                self.resume_errors.push(format!("interface {:?}: {e}", desc.addr_or_kind()));
             }
         }
 
@@ -252,24 +290,33 @@ impl BridgeController {
         }
     }
 
-    /// True if a bridge session (either role) is running.
+    /// True if either bridge session (server or client) is running.
     pub fn is_running(&self) -> bool {
-        self.session.is_some()
+        self.server_session.is_some() || self.client_session.is_some()
     }
 
-    fn require_session(&self) -> Result<&BridgeSession> {
-        self.session
-            .as_ref()
-            .ok_or_else(|| anyhow!("no bridge session is running"))
+    /// Look up a running session by role string (`"server"` or `"client"`).
+    fn session(&self, role: &str) -> Result<&BridgeSession> {
+        match role {
+            "server" => self
+                .server_session
+                .as_ref()
+                .ok_or_else(|| anyhow!("no bridge server session is running")),
+            "client" => self
+                .client_session
+                .as_ref()
+                .ok_or_else(|| anyhow!("no bridge client session is running")),
+            other => Err(anyhow!("unknown role {other:?}, expected \"server\" or \"client\"")),
+        }
     }
 
     // ---- bridge server ----
 
     pub async fn start_bridge_server(&mut self, args: ServerArgs) -> Result<()> {
-        if self.session.is_some() {
-            anyhow::bail!("a bridge session is already running; stop it first");
+        if self.server_session.is_some() {
+            anyhow::bail!("a bridge server session is already running; stop it first");
         }
-        self.session = Some(BridgeSession::start_server(args.clone()).await?);
+        self.server_session = Some(BridgeSession::start_server(args.clone()).await?);
         self.last_server_args = Some(args.clone());
         self.settings.bridge = Some(args);
         self.settings.bridge_running = true;
@@ -278,7 +325,7 @@ impl BridgeController {
     }
 
     pub async fn stop_bridge_server(&mut self) -> Result<()> {
-        if let Some(mut s) = self.session.take() {
+        if let Some(mut s) = self.server_session.take() {
             s.stop();
         }
         self.settings.bridge_running = false;
@@ -298,18 +345,23 @@ impl BridgeController {
     // ---- bridge client ----
 
     pub async fn start_client(&mut self, args: ClientArgs) -> Result<()> {
-        if self.session.is_some() {
-            anyhow::bail!("a bridge session is already running; stop it first");
+        if self.client_session.is_some() {
+            anyhow::bail!("a bridge client session is already running; stop it first");
         }
-        self.session = Some(BridgeSession::start_client(args.clone()).await?);
-        self.last_client_args = Some(args);
+        self.client_session = Some(BridgeSession::start_client(args.clone()).await?);
+        self.last_client_args = Some(args.clone());
+        self.settings.client = Some(args);
+        self.settings.client_running = true;
+        self.save_settings();
         Ok(())
     }
 
     pub async fn stop_client(&mut self) -> Result<()> {
-        if let Some(mut s) = self.session.take() {
+        if let Some(mut s) = self.client_session.take() {
             s.stop();
         }
+        self.settings.client_running = false;
+        self.save_settings();
         Ok(())
     }
 
@@ -324,8 +376,13 @@ impl BridgeController {
 
     // ---- server browser ----
 
+    /// Discovered server announces. Sourced from the client session (that's
+    /// the role that's browsing for hosts to connect to); falls back to the
+    /// server session's own view if only a server is running, since its node
+    /// still passively hears announces on whatever interfaces it has.
     pub async fn list_servers(&self) -> Result<Vec<ServerEntry>> {
-        match &self.session {
+        let session = self.client_session.as_ref().or(self.server_session.as_ref());
+        match session {
             Some(s) => Ok(s.discovered().await.iter().map(ServerEntry::from_discovered).collect()),
             None => Ok(Vec::new()),
         }
@@ -333,21 +390,26 @@ impl BridgeController {
 
     // ---- live interface control ----
 
+    /// Interfaces from both sessions, each tagged with which one it belongs
+    /// to — a server and a client running at once are two separate nodes,
+    /// each with their own interfaces.
     pub fn list_interfaces(&self) -> Result<Vec<InterfaceInfo>> {
-        let handle = self.require_session()?.handle();
-        Ok(handle
-            .interface_inventory()
-            .into_iter()
-            .map(|e| InterfaceInfo {
+        let mut out = Vec::new();
+        for (role, session) in [("server", &self.server_session), ("client", &self.client_session)] {
+            let Some(session) = session else { continue };
+            let handle = session.handle();
+            out.extend(handle.interface_inventory().into_iter().map(|e| InterfaceInfo {
                 id: hex::encode(e.snapshot.id.as_bytes()),
+                role: role.to_string(),
                 name: e.name,
                 mode: format!("{:?}", e.snapshot.mode),
                 connection: format!("{:?}", e.snapshot.connection),
                 rx_bytes: e.snapshot.rx_bytes,
                 tx_bytes: e.snapshot.tx_bytes,
                 links: e.snapshot.links,
-            })
-            .collect())
+            }));
+        }
+        Ok(out)
     }
 
     /// Add a TCP interface. `addr` is `host:port`; `0.0.0.0:PORT` (or `:PORT`)
@@ -361,10 +423,11 @@ impl BridgeController {
     pub async fn add_interface_tcp(
         &mut self,
         addr: String,
+        role: String,
         ifac_name: Option<String>,
         ifac_passphrase: Option<String>,
     ) -> Result<()> {
-        let handle = self.require_session()?.handle();
+        let handle = self.session(&role)?.handle();
         let (host, port) = parse_host_port(&addr)?;
         let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
         // IfacContext::derive returns None when both name and passphrase are
@@ -415,6 +478,7 @@ impl BridgeController {
             kind: "tcp".to_string(),
             addr: Some(addr),
             peer_addr: None,
+            role,
             ifac_name,
             ifac_passphrase,
         });
@@ -429,10 +493,11 @@ impl BridgeController {
     /// it is re-attached on resume.
     pub fn add_interface_auto(
         &mut self,
+        role: String,
         ifac_name: Option<String>,
         ifac_passphrase: Option<String>,
     ) -> Result<()> {
-        let handle = self.require_session()?.handle();
+        let handle = self.session(&role)?.handle();
         let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
         let ifac = IfacContext::derive(
             ifac_name.as_deref(),
@@ -458,6 +523,7 @@ impl BridgeController {
             kind: "auto".to_string(),
             addr: None,
             peer_addr: None,
+            role,
             ifac_name,
             ifac_passphrase,
         });
@@ -465,19 +531,21 @@ impl BridgeController {
         Ok(())
     }
 
-    /// Add a UDP interface. Unlike TCP, UDP has no server/client role — it's
-    /// a fixed point-to-point link, so both a local bind address and the
-    /// remote peer's address are required. If `ifac_name` and/or
+    /// Add a UDP interface to the given session (`"server"` or `"client"`).
+    /// Unlike TCP, a UDP link has no bind-vs-connect distinction of its own —
+    /// it's a fixed point-to-point link, so both a local bind address and
+    /// the remote peer's address are required. If `ifac_name` and/or
     /// `ifac_passphrase` are given, the interface is IFAC-protected.
     /// Persists the interface so it is re-attached on resume.
     pub async fn add_interface_udp(
         &mut self,
         local: String,
         peer: String,
+        role: String,
         ifac_name: Option<String>,
         ifac_passphrase: Option<String>,
     ) -> Result<()> {
-        let handle = self.require_session()?.handle();
+        let handle = self.session(&role)?.handle();
         let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
         let ifac = IfacContext::derive(
             ifac_name.as_deref(),
@@ -507,6 +575,7 @@ impl BridgeController {
             kind: "udp".to_string(),
             addr: Some(local),
             peer_addr: Some(peer),
+            role,
             ifac_name,
             ifac_passphrase,
         });
@@ -514,18 +583,20 @@ impl BridgeController {
         Ok(())
     }
 
-    /// Add a WebSocket interface. `addr` starting with `ws://` or `wss://` is
-    /// treated as a client target URL; otherwise it's parsed as `host:port`
-    /// to bind a server (same convention as TCP). If `ifac_name` and/or
+    /// Add a WebSocket interface to the given session (`"server"` or
+    /// `"client"`). `addr` starting with `ws://` or `wss://` is treated as a
+    /// client target URL; otherwise it's parsed as `host:port` to bind a
+    /// server (same convention as TCP). If `ifac_name` and/or
     /// `ifac_passphrase` are given, the interface is IFAC-protected.
     /// Persists the interface so it is re-attached on resume.
     pub async fn add_interface_websocket(
         &mut self,
         addr: String,
+        role: String,
         ifac_name: Option<String>,
         ifac_passphrase: Option<String>,
     ) -> Result<()> {
-        let handle = self.require_session()?.handle();
+        let handle = self.session(&role)?.handle();
         let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
         let ifac = IfacContext::derive(
             ifac_name.as_deref(),
@@ -581,6 +652,7 @@ impl BridgeController {
             kind: "websocket".to_string(),
             addr: Some(addr),
             peer_addr: None,
+            role,
             ifac_name,
             ifac_passphrase,
         });
@@ -590,8 +662,21 @@ impl BridgeController {
 
     /// Remove an interface by its hex id. Also drops the matching saved
     /// descriptor so it won't be re-attached on resume.
+    /// Which running session (if any) owns the interface with this hex id —
+    /// checks both, so remove/rename don't need the caller to know or
+    /// remember which role an interface was attached under.
+    fn session_owning_interface(&self, id_hex: &str) -> Option<&BridgeSession> {
+        [&self.server_session, &self.client_session]
+            .into_iter()
+            .flatten()
+            .find(|s| matches!(find_interface_by_hex(s.handle(), id_hex), Ok(Some(_))))
+    }
+
     pub fn remove_interface(&mut self, id_hex: &str) -> Result<()> {
-        let handle = self.require_session()?.handle();
+        let handle = self
+            .session_owning_interface(id_hex)
+            .ok_or_else(|| anyhow!("no interface with id {id_hex}"))?
+            .handle();
         let id = find_interface_by_hex(handle, id_hex)?
             .ok_or_else(|| anyhow!("no interface with id {id_hex}"))?;
         handle.remove_interface(id);
@@ -610,7 +695,10 @@ impl BridgeController {
 
     /// Rename an interface by its hex id.
     pub fn rename_interface(&self, id_hex: &str, name: String) -> Result<()> {
-        let handle = self.require_session()?.handle();
+        let handle = self
+            .session_owning_interface(id_hex)
+            .ok_or_else(|| anyhow!("no interface with id {id_hex}"))?
+            .handle();
         let id = find_interface_by_hex(handle, id_hex)?
             .ok_or_else(|| anyhow!("no interface with id {id_hex}"))?;
         if !handle.set_interface_name(id, name.clone()) {
@@ -673,16 +761,22 @@ impl BridgeController {
 
     /// Poll-able snapshot of the whole UI state.
     pub async fn state(&mut self) -> Result<ControllerState> {
-        let (bridge_running, bridge_role) = match &self.session {
-            Some(s) => (true, Some(format!("{:?}", s.role()))),
-            None => (false, None),
+        let server_running = self.server_session.is_some();
+        let client_running = self.client_session.is_some();
+        let bridge_role = match (server_running, client_running) {
+            (true, true) => Some("Server + Client".to_string()),
+            (true, false) => Some("Server".to_string()),
+            (false, true) => Some("Client".to_string()),
+            (false, false) => None,
         };
         let servers = self.list_servers().await?;
         let interfaces = self.list_interfaces().unwrap_or_default();
         let ds = self.ds.status();
         Ok(ControllerState {
-            bridge_running,
+            bridge_running: server_running || client_running,
             bridge_role,
+            server_running,
+            client_running,
             ds,
             servers,
             interfaces,
