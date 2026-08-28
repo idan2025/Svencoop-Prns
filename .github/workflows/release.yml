@@ -72,22 +72,45 @@ jobs:
         # detects a missing AppImage and packages it manually instead.
         run: cargo tauri build || true
 
-      - name: Package AppImage manually if linuxdeploy failed
+      - name: Package AppImage manually (always, never trust linuxdeploy's own output)
         working-directory: gui/src-tauri
+        # Always repackage ourselves from the AppDir tauri-bundler assembles
+        # before handing off to linuxdeploy — regardless of whether
+        # linuxdeploy itself succeeded or failed. Two reasons:
+        #   1. linuxdeploy is known to fail on some runner images the same
+        #      way it fails on CachyOS locally (strip vs. .relr.dyn).
+        #      deb/rpm/the raw binary still get built first either way.
+        #   2. When linuxdeploy DOES succeed, its GTK plugin bundles
+        #      webkit2gtk/gtk3/javascriptcoregtk (built against *this
+        #      runner's* distro) into the AppImage, along with a couple of
+        #      EGL-touching libraries (libwayland-egl, libgstgl) — but NOT
+        #      Mesa/libEGL/libGL itself. At runtime on a *different* distro,
+        #      that bundled WebKit (Ubuntu-built) talks to the host's own
+        #      Mesa (e.g. a CachyOS/Arch box), and the combination crashes
+        #      WebKit's EGL init with "Could not create surfaceless EGL
+        #      display: EGL_BAD_ALLOC" — confirmed by downloading and
+        #      running the actual v0.1.3 release AppImage. Every local
+        #      build all through this project's development relied on
+        #      linuxdeploy failing before it could bundle anything, so the
+        #      AppImage fell through to the host's own matching system
+        #      libraries — that's the only configuration that's actually
+        #      been proven to work. Stripping usr/lib here makes CI produce
+        #      exactly that configuration deterministically, rather than
+        #      leaving it to chance whether linuxdeploy's strip step fails
+        #      on a given runner image. Same tradeoff the "Native ELF"
+        #      release tier already has: needs webkit2gtk-4.1 + gtk3
+        #      installed on the host — a safe bet on any Linux desktop.
         run: |
           set -euo pipefail
-          if find target/release/bundle/appimage -maxdepth 1 -iname "*.AppImage" 2>/dev/null | grep -q .; then
-            echo "AppImage already built via linuxdeploy"
-            exit 0
-          fi
-          echo "linuxdeploy failed as expected — packaging AppImage manually with appimagetool"
           appdir=$(find target/release/bundle/appimage -maxdepth 1 -iname "*.AppDir" | head -1)
+          rm -rf "${appdir:?}/usr/lib"
           icon=$(find "$appdir/usr/share/icons" -iname "sc-rns-gui.png" -path "*256x256*" | head -1)
           cp "$icon" "$appdir/sc-rns-gui.png"
           curl -L -o /tmp/appimagetool \
             https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x /tmp/appimagetool
           version=$(grep -m1 '"version"' tauri.conf.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          rm -f target/release/bundle/appimage/*.AppImage
           /tmp/appimagetool --appimage-extract-and-run "$appdir" \
             "target/release/bundle/appimage/Sven_Co-op_over_Reticulum_${version}_x86_64.AppImage"
 
