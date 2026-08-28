@@ -94,6 +94,30 @@ input[type="text"], input[type="number"], input[type="password"], select {
   border-radius: 6px;
   font-size: 13px;
 }
+/* WebKitGTK (and some other engines) render <select> with native OS widget
+   chrome by default, ignoring the background/color above for the closed
+   box — that's what made the selected value unreadable (light text on a
+   native white background). appearance:none forces normal CSS box
+   rendering instead, and the background-image below draws a plain arrow
+   to replace the native one appearance:none removes. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 14px top 55%, right 9px top 55%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+/* Best-effort — many engines render the open dropdown's option list as a
+   native popup that ignores this, but it's harmless where it does apply. */
+select option {
+  background: var(--panel-2);
+  color: var(--text);
+}
 input[type="checkbox"] { margin-left: 6px; }
 
 .row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
