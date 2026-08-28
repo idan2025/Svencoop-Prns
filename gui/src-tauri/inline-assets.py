@@ -76,8 +76,12 @@ __CSS__
         <h2>Sven Co-op dedicated server</h2>
         <label>UDP port <input id="ds-port" type="number" value="27015" /></label>
         <label>Max players <input id="ds-maxplayers" type="number" value="8" /></label>
-        <label>Starting map <input id="ds-map" type="text" value="svencoop1" /></label>
+        <label>Starting map
+          <input id="ds-map" type="text" value="svencoop1" list="ds-map-list" />
+          <datalist id="ds-map-list"></datalist>
+        </label>
         <label>Install dir <input id="ds-install" type="text" placeholder="(default: bundle/svends)" /></label>
+        <label>Allow cheats (sv_cheats) <input id="ds-sv-cheats" type="checkbox" /></label>
         <div class="row">
           <button id="ds-start">Start / pull</button>
           <button id="ds-stop" class="danger">Stop</button>
@@ -89,6 +93,15 @@ __CSS__
           <p id="ds-progress-line" class="ds-progress-line"></p>
         </div>
         <p id="ds-status-line"></p>
+        <fieldset>
+          <legend>Change map (live, no restart)</legend>
+          <label>Map <select id="ds-changelevel-map"></select></label>
+          <div class="row">
+            <button id="ds-changelevel">Change map</button>
+            <button id="ds-refresh-maps">Refresh map list</button>
+          </div>
+          <p class="hint">Lists <code>.bsp</code> files actually installed under <code>svencoop/maps/</code>. Campaign maps often <code>changelevel</code> into <code>sp_campaign_portal</code> on their own when a round ends — that's the game's own campaign flow, not a bridge setting.</p>
+        </fieldset>
         <p id="resume-errors" class="hint" hidden style="color: var(--danger)"></p>
       </div>
 

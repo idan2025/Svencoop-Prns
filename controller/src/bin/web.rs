@@ -123,6 +123,7 @@ async fn api_dispatch(
                 maxplayers: r.maxplayers,
                 map: r.map,
                 install_dir: r.install_dir.map(PathBuf::from),
+                sv_cheats: r.sv_cheats,
             };
             ctrl.ds_start(args).await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             ok()
@@ -130,6 +131,20 @@ async fn api_dispatch(
         "ds_stop" => {
             ctrl.ds_stop().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             ok()
+        }
+        "ds_changelevel" => {
+            let r: DsChangelevelReq = parse(body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            ctrl.ds_changelevel(r.map).await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            ok()
+        }
+        "ds_set_cheats" => {
+            let r: DsSetCheatsReq = parse(body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            ctrl.ds_set_cheats(r.enabled).await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            ok()
+        }
+        "ds_list_maps" => {
+            let maps = ctrl.ds_list_maps().await;
+            Ok(Json(json!(maps)))
         }
 
         // ---- bridge server ----
@@ -241,6 +256,20 @@ struct DsStartReq {
     #[serde(default = "default_ds_map")]
     map: String,
     install_dir: Option<String>,
+    #[serde(default)]
+    sv_cheats: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DsChangelevelReq {
+    map: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DsSetCheatsReq {
+    enabled: bool,
 }
 fn default_ds_port() -> u16 { 27015 }
 fn default_ds_maxplayers() -> u32 { 8 }

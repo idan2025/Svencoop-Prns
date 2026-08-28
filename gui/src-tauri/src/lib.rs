@@ -201,6 +201,7 @@ async fn ds_start(
     maxplayers: u32,
     map: String,
     install_dir: Option<String>,
+    sv_cheats: Option<bool>,
 ) -> Result<(), String> {
     with_ctrl(state, |ctrl| {
         Box::pin(async move {
@@ -209,6 +210,7 @@ async fn ds_start(
                 maxplayers,
                 map,
                 install_dir: install_dir.map(PathBuf::from),
+                sv_cheats: sv_cheats.unwrap_or(false),
             })
             .await
         })
@@ -224,6 +226,21 @@ async fn ds_stop(state: tauri::State<'_, CtrlState>) -> Result<(), String> {
 #[tauri::command]
 async fn ds_status(state: tauri::State<'_, CtrlState>) -> Result<sc_rns_controller::DsStatus, String> {
     with_ctrl(state, |ctrl| Box::pin(async move { Ok(ctrl.ds_status()) })).await
+}
+
+#[tauri::command]
+async fn ds_changelevel(state: tauri::State<'_, CtrlState>, map: String) -> Result<(), String> {
+    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.ds_changelevel(map).await })).await
+}
+
+#[tauri::command]
+async fn ds_set_cheats(state: tauri::State<'_, CtrlState>, enabled: bool) -> Result<(), String> {
+    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.ds_set_cheats(enabled).await })).await
+}
+
+#[tauri::command]
+async fn ds_list_maps(state: tauri::State<'_, CtrlState>) -> Result<Vec<String>, String> {
+    with_ctrl(state, |ctrl| Box::pin(async move { Ok(ctrl.ds_list_maps().await) })).await
 }
 
 // ---- connect + launch ----
@@ -322,6 +339,9 @@ pub fn run() {
             ds_start,
             ds_stop,
             ds_status,
+            ds_changelevel,
+            ds_set_cheats,
+            ds_list_maps,
             connect_and_launch,
             get_state,
         ])

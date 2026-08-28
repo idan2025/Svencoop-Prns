@@ -729,6 +729,35 @@ impl BridgeController {
         self.ds.status()
     }
 
+    /// Change the running DS's map live (`changelevel <map>`), without
+    /// restarting the whole process. Persists the new map so a later
+    /// restart/resume comes back on it rather than the original start map.
+    pub async fn ds_changelevel(&mut self, map: String) -> Result<()> {
+        self.ds.send_command(&format!("changelevel {map}")).await?;
+        if let Some(args) = self.settings.ds.as_mut() {
+            args.map = map;
+        }
+        self.save_settings();
+        Ok(())
+    }
+
+    /// Toggle `sv_cheats` live on the running DS. Persisted so a later
+    /// restart/resume keeps the same setting.
+    pub async fn ds_set_cheats(&mut self, enabled: bool) -> Result<()> {
+        self.ds.set_cheats(enabled).await?;
+        if let Some(args) = self.settings.ds.as_mut() {
+            args.sv_cheats = enabled;
+        }
+        self.save_settings();
+        Ok(())
+    }
+
+    /// Installed maps (`.bsp` stems), sorted. Empty if the DS isn't
+    /// installed yet.
+    pub async fn ds_list_maps(&self) -> Vec<String> {
+        self.ds.list_maps().await
+    }
+
     // ---- connect + launch ----
 
     /// Ensure a client session is running pointed at `server_hash_hex`, wait

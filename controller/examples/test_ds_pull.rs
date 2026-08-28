@@ -16,6 +16,7 @@ async fn main() {
         maxplayers: 8,
         map: "svencoop1".to_string(),
         install_dir: None,
+        sv_cheats: false,
     };
     match ctrl.ds_start(args).await {
         Ok(()) => println!("ds_start returned Ok (background task spawned)"),

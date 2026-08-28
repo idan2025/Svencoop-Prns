@@ -92,18 +92,68 @@ document.querySelectorAll("#tab-nav button").forEach((btn) => {
     btn.classList.add("active");
     document.querySelectorAll(".tab").forEach((t) => (t.hidden = true));
     $("tab-" + btn.dataset.tab).hidden = false;
+    if (btn.dataset.tab === "ds") refreshMaps();
   });
 });
 
 // ---- DS ----
+async function refreshMaps() {
+  let maps = [];
+  try {
+    maps = await call("ds_list_maps");
+  } catch (e) {
+    return;
+  }
+  const datalist = $("ds-map-list");
+  datalist.innerHTML = "";
+  maps.forEach((m) => {
+    const opt = document.createElement("option");
+    opt.value = m;
+    datalist.appendChild(opt);
+  });
+  const select = $("ds-changelevel-map");
+  const prev = select.value;
+  select.innerHTML = "";
+  if (maps.length === 0) {
+    const opt = document.createElement("option");
+    opt.textContent = "(no maps found — pull/start the DS first)";
+    opt.disabled = true;
+    select.appendChild(opt);
+  } else {
+    maps.forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m;
+      select.appendChild(opt);
+    });
+    if (maps.includes(prev)) select.value = prev;
+  }
+}
+$("ds-refresh-maps").addEventListener("click", refreshMaps);
+$("ds-changelevel").addEventListener("click", async () => {
+  const map = val("ds-changelevel-map", "");
+  if (!map) { toast("Pick a map first.", "error"); return; }
+  await call("ds_changelevel", { map });
+  toast(`Changing map to ${map}…`, "info");
+});
+$("ds-sv-cheats").addEventListener("change", async (ev) => {
+  // If the DS is already running, flip it live; otherwise it just gets
+  // read as part of the next ds_start call.
+  if ($("ds-status-line").dataset.running === "true") {
+    await call("ds_set_cheats", { enabled: ev.target.checked });
+    toast(`sv_cheats ${ev.target.checked ? "enabled" : "disabled"}.`, "info");
+  }
+});
 $("ds-start").addEventListener("click", async () => {
   await call("ds_start", {
     port: num("ds-port", 27015),
     maxplayers: num("ds-maxplayers", 8),
     map: val("ds-map", "svencoop1"),
     installDir: optStr("ds-install"),
+    svCheats: checked("ds-sv-cheats"),
   });
   toast("Dedicated server starting (will pull via steamcmd if needed).", "info");
+  setTimeout(refreshMaps, 3000);
 });
 $("ds-stop").addEventListener("click", async () => { await call("ds_stop"); toast("DS stopped."); });
 
@@ -240,6 +290,12 @@ async function refresh() {
     $("ds-status-line").textContent = ds.running
       ? `Running on port ${ds.port ?? "?"} (${ds.install_dir ?? "?"})`
       : (phase === "error" ? ("Error: " + (ds.last_line || "unknown")) : "Stopped.");
+    $("ds-status-line").dataset.running = ds.running ? "true" : "false";
+    // Keep the cheats checkbox in sync with reality (startup value or a
+    // live toggle from elsewhere) instead of drifting.
+    if (document.activeElement !== $("ds-sv-cheats")) {
+      $("ds-sv-cheats").checked = !!ds.sv_cheats;
+    }
     // Bridge server / client status — independent of each other.
     $("srv-status-line").textContent = s.server_running ? "Running." : "Stopped.";
     $("cli-status-line").textContent = s.client_running ? "Running." : "Stopped.";

@@ -31,6 +31,9 @@ pub struct DsStartArgs {
     pub map: String,
     /// Where to install/look for the DS. Defaults to `<bundle>/svends` if None.
     pub install_dir: Option<PathBuf>,
+    /// Enable `sv_cheats` at startup.
+    #[serde(default)]
+    pub sv_cheats: bool,
 }
 
 impl Default for DsStartArgs {
@@ -40,6 +43,7 @@ impl Default for DsStartArgs {
             maxplayers: 8,
             map: "svencoop1".to_string(),
             install_dir: None,
+            sv_cheats: false,
         }
     }
 }
@@ -76,6 +80,11 @@ pub struct DsStatus {
     /// Last steamcmd / DS output line, for the progress bar caption.
     #[serde(default)]
     pub last_line: String,
+    /// Whether `sv_cheats` is currently on (if running). Reflects the last
+    /// known state — either set at startup or toggled live via
+    /// `ds_set_cheats`, so the UI checkbox doesn't drift from reality.
+    #[serde(default)]
+    pub sv_cheats: bool,
 }
 
 /// Interior-mutable live state shared between the foreground `DsManager`
@@ -89,6 +98,7 @@ struct DsLive {
     last_line: String,
     port: Option<u16>,
     install_dir: Option<PathBuf>,
+    sv_cheats: bool,
 }
 
 impl DsLive {
@@ -112,6 +122,13 @@ pub struct DsManager {
     steamcmd: SteamcmdRunner,
     live: Arc<Mutex<DsLive>>,
     child: Arc<Mutex<Option<Child>>>,
+    /// The running DS child's stdin, so the operator can send live console
+    /// commands (`changelevel <map>`, `sv_cheats 1`, ...) the same way an
+    /// admin would type into the server console directly. A separate
+    /// `tokio::sync::Mutex` (not the plain one `child`/`live` use) because
+    /// writing to it is an async operation and needs to hold the guard
+    /// across an `.await`.
+    stdin: Arc<tokio::sync::Mutex<Option<tokio::process::ChildStdin>>>,
     cancel: Arc<AtomicBool>,
     /// Handle to the pull/spawn task, so `stop()` can cancel an in-flight pull.
     task: Option<JoinHandle<()>>,
@@ -124,6 +141,7 @@ impl DsManager {
             bundle_dir,
             live: Arc::new(Mutex::new(DsLive::default())),
             child: Arc::new(Mutex::new(None)),
+            stdin: Arc::new(tokio::sync::Mutex::new(None)),
             cancel: Arc::new(AtomicBool::new(false)),
             task: None,
         }
@@ -191,15 +209,61 @@ impl DsManager {
         let steamcmd = SteamcmdRunner::new(self.bundle_dir.clone());
         let live = self.live.clone();
         let child = self.child.clone();
+        let stdin = self.stdin.clone();
         let cancel = self.cancel.clone();
 
         self.task = Some(tokio::spawn(async move {
             ds_background(
-                bundle_dir, steamcmd, args, live, child, cancel,
+                bundle_dir, steamcmd, args, live, child, stdin, cancel,
             )
             .await;
         }));
         Ok(())
+    }
+
+    /// Send a live console command to the running DS, exactly as an operator
+    /// typing into the server console would (`changelevel <map>`,
+    /// `sv_cheats 1`, ...). Errors if the DS isn't running.
+    pub async fn send_command(&self, cmd: &str) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+        let mut guard = self.stdin.lock().await;
+        let stdin = guard
+            .as_mut()
+            .ok_or_else(|| anyhow!("dedicated server is not running"))?;
+        stdin
+            .write_all(cmd.as_bytes())
+            .await
+            .with_context(|| format!("sending DS console command {cmd:?}"))?;
+        stdin.write_all(b"\n").await?;
+        stdin.flush().await?;
+        info!(cmd, "sent DS console command");
+        Ok(())
+    }
+
+    /// Toggle `sv_cheats` live and record it, so `status()` reflects reality
+    /// instead of drifting from whatever the UI last assumed.
+    pub async fn set_cheats(&self, enabled: bool) -> Result<()> {
+        self.send_command(&format!("sv_cheats {}", if enabled { 1 } else { 0 })).await?;
+        self.live.lock().unwrap().sv_cheats = enabled;
+        Ok(())
+    }
+
+    /// List installed maps (`.bsp` files under `svencoop/maps/`), sorted.
+    /// Looks at the currently-known/last-used install first, then a fresh
+    /// `find_svends()` lookup. Empty if the DS isn't installed yet.
+    pub async fn list_maps(&self) -> Vec<String> {
+        let install_dir = {
+            let live = self.live.lock().unwrap();
+            live.install_dir.clone()
+        };
+        let install_dir = match install_dir {
+            Some(d) => Some(d),
+            None => self.find_svends().await.map(|(_, dir)| dir),
+        };
+        let Some(install_dir) = install_dir else {
+            return Vec::new();
+        };
+        list_maps_inner(&install_dir).await
     }
 
     /// Stop the running DS, if any. Cancels an in-flight steamcmd pull (the
@@ -217,11 +281,13 @@ impl DsManager {
             let _ = child.wait().await;
             info!("dedicated server stopped");
         }
+        *self.stdin.lock().await = None;
         {
             let mut live = self.live.lock().unwrap();
             live.set(DsPhase::Idle, "stopped");
             live.port = None;
             live.install_dir = None;
+            live.sv_cheats = false;
         }
         Ok(())
     }
@@ -260,6 +326,7 @@ impl DsManager {
             phase,
             progress_pct: live.progress_pct,
             last_line: live.last_line,
+            sv_cheats: live.sv_cheats,
         }
     }
 }
@@ -272,6 +339,7 @@ async fn ds_background(
     args: DsStartArgs,
     live: Arc<Mutex<DsLive>>,
     child: Arc<Mutex<Option<Child>>>,
+    stdin: Arc<tokio::sync::Mutex<Option<tokio::process::ChildStdin>>>,
     cancel: Arc<AtomicBool>,
 ) {
     let os = steamcmd.os();
@@ -384,7 +452,10 @@ async fn ds_background(
         .arg("+maxplayers").arg(args.maxplayers.to_string())
         .arg("+map").arg(&args.map)
         .current_dir(&install_dir)
-        .stdin(std::process::Stdio::null())
+        // Piped (not null) so the operator can send live console commands
+        // (changelevel, sv_cheats, ...) the same way typing into the
+        // server's own console would.
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit());
     let _ = cmd.kill_on_drop(true);
@@ -392,12 +463,24 @@ async fn ds_background(
         .spawn()
         .with_context(|| format!("spawning dedicated server at {}", exe.display()))
     {
-        Ok(spawned) => {
+        Ok(mut spawned) => {
+            let child_stdin = spawned.stdin.take();
             *child.lock().unwrap() = Some(spawned);
-            let mut l = live.lock().unwrap();
-            l.set(DsPhase::Running, "dedicated server running");
-            l.port = Some(args.port);
-            l.install_dir = Some(install_dir);
+            {
+                let mut l = live.lock().unwrap();
+                l.set(DsPhase::Running, "dedicated server running");
+                l.port = Some(args.port);
+                l.install_dir = Some(install_dir);
+                l.sv_cheats = args.sv_cheats;
+            }
+            *stdin.lock().await = child_stdin;
+            if args.sv_cheats {
+                use tokio::io::AsyncWriteExt;
+                if let Some(s) = stdin.lock().await.as_mut() {
+                    let _ = s.write_all(b"sv_cheats 1\n").await;
+                    let _ = s.flush().await;
+                }
+            }
         }
         Err(e) => {
             set_error(&live, &format!("spawn failed: {e}"));
@@ -410,6 +493,7 @@ fn set_idle(live: &Arc<Mutex<DsLive>>) {
     l.set(DsPhase::Idle, "stopped");
     l.port = None;
     l.install_dir = None;
+    l.sv_cheats = false;
 }
 
 fn set_error(live: &Arc<Mutex<DsLive>>, msg: &str) {
@@ -418,6 +502,7 @@ fn set_error(live: &Arc<Mutex<DsLive>>, msg: &str) {
     l.progress_pct = None;
     l.port = None;
     l.install_dir = None;
+    l.sv_cheats = false;
     tracing::error!(error = msg, "DS background task failed");
 }
 
@@ -495,6 +580,31 @@ async fn is_executable(path: &Path) -> bool {
     {
         tokio::fs::metadata(path).await.map(|m| m.is_file()).unwrap_or(false)
     }
+}
+
+/// List installed maps: every `.bsp` file's stem under
+/// `<install>/svencoop/maps/`, sorted. Also checks `svencoop_addon/maps`
+/// (workshop/custom map installs land there), if present.
+async fn list_maps_inner(install_dir: &Path) -> Vec<String> {
+    let mut maps = Vec::new();
+    for game_dir in ["svencoop", "svencoop_addon"] {
+        let maps_dir = install_dir.join(game_dir).join("maps");
+        let Ok(mut entries) = tokio::fs::read_dir(&maps_dir).await else {
+            continue;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("bsp") {
+                continue;
+            }
+            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                maps.push(name.to_string());
+            }
+        }
+    }
+    maps.sort();
+    maps.dedup();
+    maps
 }
 
 /// Create an empty `<install>/svencoop/maps/soundcache/<map>.txt` for every

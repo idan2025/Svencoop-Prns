@@ -193,8 +193,12 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
         <h2>Sven Co-op dedicated server</h2>
         <label>UDP port <input id="ds-port" type="number" value="27015" /></label>
         <label>Max players <input id="ds-maxplayers" type="number" value="8" /></label>
-        <label>Starting map <input id="ds-map" type="text" value="svencoop1" /></label>
+        <label>Starting map
+          <input id="ds-map" type="text" value="svencoop1" list="ds-map-list" />
+          <datalist id="ds-map-list"></datalist>
+        </label>
         <label>Install dir <input id="ds-install" type="text" placeholder="(default: bundle/svends)" /></label>
+        <label>Allow cheats (sv_cheats) <input id="ds-sv-cheats" type="checkbox" /></label>
         <div class="row">
           <button id="ds-start">Start / pull</button>
           <button id="ds-stop" class="danger">Stop</button>
@@ -206,6 +210,15 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
           <p id="ds-progress-line" class="ds-progress-line"></p>
         </div>
         <p id="ds-status-line"></p>
+        <fieldset>
+          <legend>Change map (live, no restart)</legend>
+          <label>Map <select id="ds-changelevel-map"></select></label>
+          <div class="row">
+            <button id="ds-changelevel">Change map</button>
+            <button id="ds-refresh-maps">Refresh map list</button>
+          </div>
+          <p class="hint">Lists <code>.bsp</code> files actually installed under <code>svencoop/maps/</code>. Campaign maps often <code>changelevel</code> into <code>sp_campaign_portal</code> on their own when a round ends — that's the game's own campaign flow, not a bridge setting.</p>
+        </fieldset>
         <p id="resume-errors" class="hint" hidden style="color: var(--danger)"></p>
       </div>
 
@@ -370,18 +383,68 @@ document.querySelectorAll("#tab-nav button").forEach((btn) => {
     btn.classList.add("active");
     document.querySelectorAll(".tab").forEach((t) => (t.hidden = true));
     $("tab-" + btn.dataset.tab).hidden = false;
+    if (btn.dataset.tab === "ds") refreshMaps();
   });
 });
 
 // ---- DS ----
+async function refreshMaps() {
+  let maps = [];
+  try {
+    maps = await call("ds_list_maps");
+  } catch (e) {
+    return;
+  }
+  const datalist = $("ds-map-list");
+  datalist.innerHTML = "";
+  maps.forEach((m) => {
+    const opt = document.createElement("option");
+    opt.value = m;
+    datalist.appendChild(opt);
+  });
+  const select = $("ds-changelevel-map");
+  const prev = select.value;
+  select.innerHTML = "";
+  if (maps.length === 0) {
+    const opt = document.createElement("option");
+    opt.textContent = "(no maps found — pull/start the DS first)";
+    opt.disabled = true;
+    select.appendChild(opt);
+  } else {
+    maps.forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m;
+      select.appendChild(opt);
+    });
+    if (maps.includes(prev)) select.value = prev;
+  }
+}
+$("ds-refresh-maps").addEventListener("click", refreshMaps);
+$("ds-changelevel").addEventListener("click", async () => {
+  const map = val("ds-changelevel-map", "");
+  if (!map) { toast("Pick a map first.", "error"); return; }
+  await call("ds_changelevel", { map });
+  toast(`Changing map to ${map}…`, "info");
+});
+$("ds-sv-cheats").addEventListener("change", async (ev) => {
+  // If the DS is already running, flip it live; otherwise it just gets
+  // read as part of the next ds_start call.
+  if ($("ds-status-line").dataset.running === "true") {
+    await call("ds_set_cheats", { enabled: ev.target.checked });
+    toast(`sv_cheats ${ev.target.checked ? "enabled" : "disabled"}.`, "info");
+  }
+});
 $("ds-start").addEventListener("click", async () => {
   await call("ds_start", {
     port: num("ds-port", 27015),
     maxplayers: num("ds-maxplayers", 8),
     map: val("ds-map", "svencoop1"),
     installDir: optStr("ds-install"),
+    svCheats: checked("ds-sv-cheats"),
   });
   toast("Dedicated server starting (will pull via steamcmd if needed).", "info");
+  setTimeout(refreshMaps, 3000);
 });
 $("ds-stop").addEventListener("click", async () => { await call("ds_stop"); toast("DS stopped."); });
 
@@ -518,6 +581,12 @@ async function refresh() {
     $("ds-status-line").textContent = ds.running
       ? `Running on port ${ds.port ?? "?"} (${ds.install_dir ?? "?"})`
       : (phase === "error" ? ("Error: " + (ds.last_line || "unknown")) : "Stopped.");
+    $("ds-status-line").dataset.running = ds.running ? "true" : "false";
+    // Keep the cheats checkbox in sync with reality (startup value or a
+    // live toggle from elsewhere) instead of drifting.
+    if (document.activeElement !== $("ds-sv-cheats")) {
+      $("ds-sv-cheats").checked = !!ds.sv_cheats;
+    }
     // Bridge server / client status — independent of each other.
     $("srv-status-line").textContent = s.server_running ? "Running." : "Stopped.";
     $("cli-status-line").textContent = s.client_running ? "Running." : "Stopped.";
