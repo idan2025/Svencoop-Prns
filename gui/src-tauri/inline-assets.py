@@ -132,10 +132,17 @@ __CSS__
         <fieldset>
           <legend>Add interface</legend>
           <label>TCP host:port (0.0.0.0:PORT to bind) <input id="if-tcp" type="text" placeholder="0.0.0.0:4234" /></label>
+          <label>UDP local host:port <input id="if-udp-local" type="text" placeholder="0.0.0.0:4235" /></label>
+          <label>UDP peer host:port <input id="if-udp-peer" type="text" placeholder="203.0.113.5:4235" /></label>
+          <label>WebSocket — ws://host:port to connect, or host:port to bind <input id="if-ws" type="text" placeholder="ws://example.com:8080 or 0.0.0.0:8080" /></label>
           <label>IFAC network name (blank = open) <input id="if-ifac" type="text" /></label>
           <label>IFAC passphrase (the actual shared secret — name alone is guessable) <input id="if-ifac-pass" type="password" /></label>
-          <button id="if-add-tcp">Add TCP</button>
-          <button id="if-add-auto">Add Wi-Fi/LAN auto</button>
+          <div class="row">
+            <button id="if-add-tcp">Add TCP</button>
+            <button id="if-add-auto">Add Wi-Fi/LAN auto</button>
+            <button id="if-add-udp">Add UDP</button>
+            <button id="if-add-ws">Add WebSocket</button>
+          </div>
         </fieldset>
       </div>
     </section>

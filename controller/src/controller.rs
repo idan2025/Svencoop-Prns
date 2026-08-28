@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
 
 use personal_rns::prelude::*;
+use prns_core::interfaces::udp::UDP_BITRATE_ESTIMATE;
+use prns_core::interfaces::websocket::{WebSocketFramingSelection, WEBSOCKET_BITRATE_ESTIMATE};
 use prns_core::interfaces::{ConnectionState, DEFAULT_IFAC_SIZE, IfacContext, InterfaceId};
 
 use sc_rns_bridge::{BridgeSession, ClientArgs, ServerArgs};
@@ -31,11 +33,17 @@ pub struct InterfaceDescriptor {
     /// `remove_interface` call to this descriptor. Re-generated on resume.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    /// `"tcp"` or `"auto"`.
+    /// `"tcp"`, `"udp"`, `"websocket"`, or `"auto"`.
     pub kind: String,
-    /// `host:port` for tcp; absent for auto.
+    /// `host:port` for tcp; the local bind `host:port` for udp; a
+    /// `ws://`/`wss://` target URL (client) or bind `host:port` (server) for
+    /// websocket; absent for auto.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addr: Option<String>,
+    /// Remote peer `host:port` for udp only (UDP is a fixed-peer point
+    /// interface, so it needs both ends). Unused for other kinds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_addr: Option<String>,
     /// IFAC network name, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ifac_name: Option<String>,
@@ -209,6 +217,17 @@ impl BridgeController {
                             .await
                     }
                     "auto" => self.add_interface_auto(desc.ifac_name.clone(), desc.ifac_passphrase.clone()),
+                    "udp" => {
+                        let local = desc.addr.clone().unwrap_or_default();
+                        let peer = desc.peer_addr.clone().unwrap_or_default();
+                        self.add_interface_udp(local, peer, desc.ifac_name.clone(), desc.ifac_passphrase.clone())
+                            .await
+                    }
+                    "websocket" => {
+                        let addr = desc.addr.clone().unwrap_or_default();
+                        self.add_interface_websocket(addr, desc.ifac_name.clone(), desc.ifac_passphrase.clone())
+                            .await
+                    }
                     other => Err(anyhow!("unknown interface kind {other} in settings")),
                 };
                 if let Err(e) = res {
@@ -395,6 +414,7 @@ impl BridgeController {
             id: new_id,
             kind: "tcp".to_string(),
             addr: Some(addr),
+            peer_addr: None,
             ifac_name,
             ifac_passphrase,
         });
@@ -437,6 +457,130 @@ impl BridgeController {
             id: new_id,
             kind: "auto".to_string(),
             addr: None,
+            peer_addr: None,
+            ifac_name,
+            ifac_passphrase,
+        });
+        self.save_settings();
+        Ok(())
+    }
+
+    /// Add a UDP interface. Unlike TCP, UDP has no server/client role — it's
+    /// a fixed point-to-point link, so both a local bind address and the
+    /// remote peer's address are required. If `ifac_name` and/or
+    /// `ifac_passphrase` are given, the interface is IFAC-protected.
+    /// Persists the interface so it is re-attached on resume.
+    pub async fn add_interface_udp(
+        &mut self,
+        local: String,
+        peer: String,
+        ifac_name: Option<String>,
+        ifac_passphrase: Option<String>,
+    ) -> Result<()> {
+        let handle = self.require_session()?.handle();
+        let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
+        let ifac = IfacContext::derive(
+            ifac_name.as_deref(),
+            ifac_passphrase.as_deref(),
+            DEFAULT_IFAC_SIZE,
+        );
+        let ifac_set = ifac.is_some();
+        let iface = UdpInterface::bind(&local, &peer, UDP_BITRATE_ESTIMATE)
+            .await
+            .with_context(|| format!("binding UDP interface {local} <-> {peer}"))?;
+        match ifac {
+            Some(ifac) => {
+                handle.add_interface_with_ifac_name(iface, ifac, ifac_name.clone());
+            }
+            None => {
+                handle.add_interface(iface);
+            }
+        }
+        tracing::info!(local = %local, peer = %peer, ifac = ifac_set, "attached UDP interface");
+        let new_id = handle
+            .interfaces()
+            .iter()
+            .find(|s| !before.contains(&s.id))
+            .map(|s| hex::encode(s.id.as_bytes()));
+        self.settings.interfaces.push(InterfaceDescriptor {
+            id: new_id,
+            kind: "udp".to_string(),
+            addr: Some(local),
+            peer_addr: Some(peer),
+            ifac_name,
+            ifac_passphrase,
+        });
+        self.save_settings();
+        Ok(())
+    }
+
+    /// Add a WebSocket interface. `addr` starting with `ws://` or `wss://` is
+    /// treated as a client target URL; otherwise it's parsed as `host:port`
+    /// to bind a server (same convention as TCP). If `ifac_name` and/or
+    /// `ifac_passphrase` are given, the interface is IFAC-protected.
+    /// Persists the interface so it is re-attached on resume.
+    pub async fn add_interface_websocket(
+        &mut self,
+        addr: String,
+        ifac_name: Option<String>,
+        ifac_passphrase: Option<String>,
+    ) -> Result<()> {
+        let handle = self.require_session()?.handle();
+        let before: HashSet<InterfaceId> = handle.interfaces().iter().map(|s| s.id).collect();
+        let ifac = IfacContext::derive(
+            ifac_name.as_deref(),
+            ifac_passphrase.as_deref(),
+            DEFAULT_IFAC_SIZE,
+        );
+        let ifac_set = ifac.is_some();
+        if addr.starts_with("ws://") || addr.starts_with("wss://") {
+            let client = WebSocketClientInterface::new(
+                addr.clone(),
+                WEBSOCKET_BITRATE_ESTIMATE,
+                ReconnectPolicy::STANDARD,
+                WebSocketFramingSelection::Auto,
+            );
+            match ifac {
+                Some(ifac) => {
+                    handle.add_interface_with_ifac_name(client, ifac, ifac_name.clone());
+                }
+                None => {
+                    handle.add_interface(client);
+                }
+            }
+            tracing::info!(ws = %addr, ifac = ifac_set, "attached WebSocket client interface");
+        } else {
+            let (_host, port) = parse_host_port(&addr)?;
+            if port == 0 {
+                return Err(anyhow!("invalid WebSocket bind address {addr}: no port"));
+            }
+            let srv = WebSocketServer::bind(
+                &addr,
+                WEBSOCKET_BITRATE_ESTIMATE,
+                WebSocketFramingSelection::Auto,
+            )
+            .await
+            .with_context(|| format!("binding WebSocket server on {addr}"))?;
+            match ifac {
+                Some(ifac) => {
+                    handle.supervise_with_ifac_name(srv, ifac, None);
+                }
+                None => {
+                    handle.supervise(srv);
+                }
+            }
+            tracing::info!(ws = %addr, ifac = ifac_set, "attached WebSocket server interface");
+        }
+        let new_id = handle
+            .interfaces()
+            .iter()
+            .find(|s| !before.contains(&s.id))
+            .map(|s| hex::encode(s.id.as_bytes()));
+        self.settings.interfaces.push(InterfaceDescriptor {
+            id: new_id,
+            kind: "websocket".to_string(),
+            addr: Some(addr),
+            peer_addr: None,
             ifac_name,
             ifac_passphrase,
         });

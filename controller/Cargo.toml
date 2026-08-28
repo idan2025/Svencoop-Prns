@@ -15,7 +15,7 @@ path = "src/bin/web.rs"
 
 [dependencies]
 sc-rns-bridge = { path = "..", features = ["serde"] }
-personal-rns = { path = "../vendor/personal-rns", features = ["tokio-host", "tcp", "wifi-auto"] }
+personal-rns = { path = "../vendor/personal-rns", features = ["tokio-host", "tcp", "wifi-auto", "udp", "websocket"] }
 prns-core = { path = "../vendor/prns-core" }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "net", "process", "fs", "io-util"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }

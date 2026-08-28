@@ -150,6 +150,23 @@ $("if-add-auto").addEventListener("click", async () => {
   });
   toast("Auto interface added.");
 });
+$("if-add-udp").addEventListener("click", async () => {
+  await call("add_interface_udp", {
+    local: val("if-udp-local", ""),
+    peer: val("if-udp-peer", ""),
+    ifacName: optStr("if-ifac"),
+    ifacPassphrase: optStr("if-ifac-pass"),
+  });
+  toast("UDP interface added.");
+});
+$("if-add-ws").addEventListener("click", async () => {
+  await call("add_interface_websocket", {
+    addr: val("if-ws", ""),
+    ifacName: optStr("if-ifac"),
+    ifacPassphrase: optStr("if-ifac-pass"),
+  });
+  toast("WebSocket interface added.");
+});
 
 function ifaceRow(i) {
   const tr = document.createElement("tr");

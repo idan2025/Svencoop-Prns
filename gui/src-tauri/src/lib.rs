@@ -148,6 +148,33 @@ async fn add_interface_auto(
 }
 
 #[tauri::command]
+async fn add_interface_udp(
+    state: tauri::State<'_, CtrlState>,
+    local: String,
+    peer: String,
+    ifac_name: Option<String>,
+    ifac_passphrase: Option<String>,
+) -> Result<(), String> {
+    with_ctrl(state, |ctrl| {
+        Box::pin(async move { ctrl.add_interface_udp(local, peer, ifac_name, ifac_passphrase).await })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn add_interface_websocket(
+    state: tauri::State<'_, CtrlState>,
+    addr: String,
+    ifac_name: Option<String>,
+    ifac_passphrase: Option<String>,
+) -> Result<(), String> {
+    with_ctrl(state, |ctrl| {
+        Box::pin(async move { ctrl.add_interface_websocket(addr, ifac_name, ifac_passphrase).await })
+    })
+    .await
+}
+
+#[tauri::command]
 async fn remove_interface(state: tauri::State<'_, CtrlState>, id: String) -> Result<(), String> {
     with_ctrl(state, |ctrl| Box::pin(async move { ctrl.remove_interface(&id) })).await
 }
@@ -280,6 +307,8 @@ pub fn run() {
             list_interfaces,
             add_interface_tcp,
             add_interface_auto,
+            add_interface_udp,
+            add_interface_websocket,
             remove_interface,
             rename_interface,
             ds_start,

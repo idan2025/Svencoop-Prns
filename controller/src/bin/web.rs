@@ -191,6 +191,20 @@ async fn api_dispatch(
                 .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             ok()
         }
+        "add_interface_udp" => {
+            let r: AddUdpReq = parse(body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            ctrl.add_interface_udp(r.local, r.peer, r.ifac_name, r.ifac_passphrase)
+                .await
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            ok()
+        }
+        "add_interface_websocket" => {
+            let r: AddWebsocketReq = parse(body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            ctrl.add_interface_websocket(r.addr, r.ifac_name, r.ifac_passphrase)
+                .await
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            ok()
+        }
         "remove_interface" => {
             let r: IdReq = parse(body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
             ctrl.remove_interface(&r.id).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
@@ -273,6 +287,23 @@ struct AddAutoReq {
     #[serde(default)]
     ifac_name: Option<String>,
     #[serde(default)]
+    ifac_passphrase: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddUdpReq {
+    local: String,
+    peer: String,
+    ifac_name: Option<String>,
+    ifac_passphrase: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddWebsocketReq {
+    addr: String,
+    ifac_name: Option<String>,
     ifac_passphrase: Option<String>,
 }
 
