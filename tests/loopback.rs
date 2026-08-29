@@ -14,6 +14,7 @@
 use std::time::Duration;
 
 use sc_rns_bridge::config::{ClientArgs, ServerArgs};
+use sc_rns_bridge::BridgeSession;
 use tokio::net::UdpSocket;
 
 mod common;
@@ -143,4 +144,35 @@ async fn loopback_echo_oversized_packet() {
     let payload: Vec<u8> = (0..1200u32).map(|i| (i & 0xff) as u8).collect();
     let ok = echo_round_trip(client_port, &payload, Duration::from_secs(30)).await;
     assert!(ok, "did not receive oversized-packet echo within timeout");
+}
+
+/// Regression test for the "failed to bind client UDP port" bug: a client
+/// stopped and immediately restarted on the *same* listen port must not race
+/// the old session's socket teardown. `BridgeSession::stop()` used to be
+/// fire-and-forget (just sent the stop signal and returned), so a caller
+/// doing stop-then-immediately-start-again (restart_client,
+/// connect_and_launch) could hit "address already in use" if the old
+/// session's dedicated thread hadn't finished tearing down yet. `stop()` now
+/// awaits full teardown, so this loop should never fail.
+#[tokio::test(flavor = "multi_thread")]
+async fn client_restart_on_same_port_does_not_race_socket_teardown() {
+    init_tracing();
+    let listen_port = common::free_udp_port();
+    let dir = std::env::temp_dir().join(format!("sc-rns-test-restart-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    for i in 0..20 {
+        let args = ClientArgs {
+            listen_port,
+            server_hash: None,
+            identity: dir.join("client.identity"),
+            tcp: None,
+            auto: false,
+        };
+        let mut session = BridgeSession::start_client(args)
+            .await
+            .unwrap_or_else(|e| panic!("start_client failed on iteration {i}: {e:#}"));
+        session.stop().await;
+    }
 }

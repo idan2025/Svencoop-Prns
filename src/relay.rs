@@ -148,12 +148,18 @@ impl BridgeSession {
             .map_err(|e| anyhow!("announce failed: {e:?}"))
     }
 
-    /// Stop the node. Fire-and-forget: the dedicated thread tears down on its
-    /// next tick (the node's `run()` future is dropped and its runtime exits,
-    /// which cancels the spawned relay tasks).
-    pub fn stop(&mut self) {
+    /// Stop the node and wait for it to fully tear down — including releasing
+    /// any bound sockets (UDP listen port, TCP interfaces) — before
+    /// returning. Callers that immediately start a new session on the same
+    /// port (restart, connect-and-launch) depend on this: returning before
+    /// teardown finishes previously caused an intermittent "address already
+    /// in use" on the immediate rebind.
+    pub async fn stop(&mut self) {
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(());
+        }
+        if let Some(rx) = self.done.take() {
+            let _ = rx.await;
         }
     }
 
@@ -700,8 +706,20 @@ where
                     _ = node_run => {}
                     _ = stop_rx => {}
                 }
-                let _ = done_tx.send(());
             }));
+            // Drop the runtime explicitly, then signal `done` — not from
+            // inside the async block above, which resolves as soon as
+            // `select!` picks a branch, *before* the runtime itself tears
+            // down. `Runtime::drop` synchronously aborts every task spawned
+            // on it (the UDP/TCP relay tasks) and waits for their resources —
+            // including bound sockets — to actually be released. Signaling
+            // `done` only after that is what makes `BridgeSession::stop()`'s
+            // await a real guarantee: by the time it returns, a restart can
+            // safely rebind the same port instead of racing the old socket's
+            // teardown (previously a real bug — restart/connect-and-launch
+            // could intermittently fail with "address already in use").
+            drop(rt);
+            let _ = done_tx.send(());
         })
         .context("failed to spawn bridge node thread")?;
 

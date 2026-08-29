@@ -3841,7 +3841,7 @@ dependencies = [
 
 [[package]]
 name = "sc-rns-gui"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "sc-rns-bridge",

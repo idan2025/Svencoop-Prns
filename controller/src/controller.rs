@@ -417,7 +417,7 @@ impl BridgeController {
 
     pub async fn stop_bridge_server(&mut self) -> Result<()> {
         if let Some(mut s) = self.server_session.take() {
-            s.stop();
+            s.stop().await;
         }
         self.settings.bridge_running = false;
         self.save_settings();
@@ -449,7 +449,7 @@ impl BridgeController {
 
     pub async fn stop_client(&mut self) -> Result<()> {
         if let Some(mut s) = self.client_session.take() {
-            s.stop();
+            s.stop().await;
         }
         self.settings.client_running = false;
         self.save_settings();
