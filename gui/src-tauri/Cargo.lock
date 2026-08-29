@@ -3824,6 +3824,7 @@ dependencies = [
  "dirs 5.0.1",
  "flate2",
  "hex",
+ "libc",
  "personal-rns",
  "prns-core",
  "reqwest 0.12.28",
@@ -3840,7 +3841,7 @@ dependencies = [
 
 [[package]]
 name = "sc-rns-gui"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "sc-rns-bridge",

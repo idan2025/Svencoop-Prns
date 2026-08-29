@@ -280,14 +280,19 @@ impl DsManager {
             // Kill the whole process group (see the `process_group(0)` note
             // at spawn time) — SIGKILLing only the tracked pid would leave
             // the wrapper's game-binary child running and still bound to
-            // the port.
+            // the port. A direct syscall, not a shelled-out `kill` binary:
+            // minimal container images (this project's own Docker image
+            // included) often have `kill` only as a shell builtin, with no
+            // standalone `/bin/kill` — spawning "kill" as a Command then
+            // fails with ENOENT and (since the error was discarded) silently
+            // does nothing.
             #[cfg(unix)]
             if let Some(pid) = child.id() {
-                let _ = tokio::process::Command::new("kill")
-                    .arg("-9")
-                    .arg(format!("-{pid}"))
-                    .status()
-                    .await;
+                // SAFETY: negative pid signals the whole process group;
+                // `kill(2)` is safe to call with any pid/signal pair.
+                unsafe {
+                    libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+                }
             }
             let _ = child.start_kill();
             let _ = child.wait().await;
@@ -728,12 +733,14 @@ mod tests {
         };
         assert!(is_alive(grandchild_pid), "grandchild should be running");
 
-        // Exactly what stop() does: group-kill, then kill+wait the tracked child.
-        let _ = tokio::process::Command::new("kill")
-            .arg("-9")
-            .arg(format!("-{wrapper_pid}"))
-            .status()
-            .await;
+        // Exactly what stop() does: a direct libc::kill group-kill (not a
+        // shelled-out "kill" binary — minimal containers, this project's own
+        // Docker image included, often have no standalone /bin/kill, only a
+        // shell builtin, so Command::new("kill") fails silently there), then
+        // kill+wait the tracked child.
+        unsafe {
+            libc::kill(-(wrapper_pid as libc::pid_t), libc::SIGKILL);
+        }
         let _ = wrapper.start_kill();
         let _ = wrapper.wait().await;
 
@@ -743,12 +750,13 @@ mod tests {
 
     #[cfg(unix)]
     fn is_alive(pid: i32) -> bool {
-        std::process::Command::new("kill")
-            .arg("-0")
-            .arg(pid.to_string())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+        // Signal 0 sends nothing but still validates the pid. ESRCH (no
+        // such process) means it's gone; anything else (success, or EPERM
+        // for a pid we don't own) means it still exists.
+        if unsafe { libc::kill(pid as libc::pid_t, 0) } == 0 {
+            return true;
+        }
+        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
     }
 
     #[test]
