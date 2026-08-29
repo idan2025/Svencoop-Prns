@@ -277,6 +277,18 @@ impl DsManager {
         // Kill + reap the DS child, if present.
         let maybe_child = { self.child.lock().unwrap().take() };
         if let Some(mut child) = maybe_child {
+            // Kill the whole process group (see the `process_group(0)` note
+            // at spawn time) — SIGKILLing only the tracked pid would leave
+            // the wrapper's game-binary child running and still bound to
+            // the port.
+            #[cfg(unix)]
+            if let Some(pid) = child.id() {
+                let _ = tokio::process::Command::new("kill")
+                    .arg("-9")
+                    .arg(format!("-{pid}"))
+                    .status()
+                    .await;
+            }
             let _ = child.start_kill();
             let _ = child.wait().await;
             info!("dedicated server stopped");
@@ -466,6 +478,14 @@ async fn ds_background(
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit());
     let _ = cmd.kill_on_drop(true);
+    // On Linux, `exe` is `svends_run`, a bash wrapper that spawns the real
+    // game binary as a plain child (not via `exec`) so it can restart it on
+    // crash. Put the whole tree in its own process group so `stop()` can
+    // kill it all at once — otherwise killing just the wrapper's pid orphans
+    // the game binary, which keeps holding the port and breaks every
+    // subsequent start (see: repeated "Address already in use" crash-loops).
+    #[cfg(unix)]
+    cmd.process_group(0);
     match cmd
         .spawn()
         .with_context(|| format!("spawning dedicated server at {}", exe.display()))
@@ -676,6 +696,60 @@ async fn fix_mapcycle_default(install_dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reproduces the exact orphan bug: a wrapper (like `svends_run`) that
+    /// spawns a grandchild without `exec`, so a plain SIGKILL to the
+    /// wrapper's pid alone leaves the grandchild running and still holding
+    /// its port. `process_group(0)` at spawn + a group kill on stop (the
+    /// fix in `stop()`/spawn_and_run) must reap both.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_group_kill_reaps_grandchild() {
+        let tmp = tempfile::tempdir().unwrap();
+        let marker = tmp.path().join("grandchild.pid");
+
+        let mut cmd = tokio::process::Command::new("bash");
+        cmd.arg("-c").arg(format!(
+            "sleep 30 & echo $! > {} ; wait",
+            marker.display()
+        ));
+        cmd.process_group(0);
+        let mut wrapper = cmd.spawn().unwrap();
+        let wrapper_pid = wrapper.id().unwrap();
+
+        // Wait for the grandchild to actually start and record its pid.
+        let grandchild_pid: i32 = loop {
+            if let Ok(s) = tokio::fs::read_to_string(&marker).await {
+                if let Ok(p) = s.trim().parse() {
+                    break p;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        };
+        assert!(is_alive(grandchild_pid), "grandchild should be running");
+
+        // Exactly what stop() does: group-kill, then kill+wait the tracked child.
+        let _ = tokio::process::Command::new("kill")
+            .arg("-9")
+            .arg(format!("-{wrapper_pid}"))
+            .status()
+            .await;
+        let _ = wrapper.start_kill();
+        let _ = wrapper.wait().await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(!is_alive(grandchild_pid), "grandchild must not be orphaned");
+    }
+
+    #[cfg(unix)]
+    fn is_alive(pid: i32) -> bool {
+        std::process::Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
 
     #[test]
     fn default_install_dir_is_bundle_relative() {
