@@ -22,6 +22,7 @@ use personal_rns::prelude::*;
 use prns_core::interfaces::udp::UDP_BITRATE_ESTIMATE;
 use prns_core::interfaces::websocket::{WebSocketFramingSelection, WEBSOCKET_BITRATE_ESTIMATE};
 use prns_core::interfaces::{ConnectionState, DEFAULT_IFAC_SIZE, IfacContext, InterfaceId};
+use prns_core::routing::NextHop;
 
 use sc_rns_bridge::{BridgeSession, ClientArgs, ServerArgs};
 
@@ -178,6 +179,26 @@ pub struct InterfaceInfo {
     pub links: u32,
 }
 
+/// One connected client, for the Bridge Server tab's Connected Clients table.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConnectedClientEntry {
+    /// 32-hex-char identity hash (learned via `identify()`, not the same
+    /// value space as a destination hash).
+    pub identity_hash: String,
+}
+
+/// Result of a manual "trace" — an on-demand path request plus whatever the
+/// engine's route table already knows about the destination. Never a hard
+/// error: an unreachable/unknown destination just comes back with everything
+/// `None` and `error` explaining why.
+#[derive(Debug, Clone, Serialize)]
+pub struct PathTraceResult {
+    pub hops: Option<u8>,
+    pub via: Option<String>,
+    pub interface: Option<String>,
+    pub error: Option<String>,
+}
+
 /// A poll-able snapshot of everything the GUI shows at once.
 #[derive(Debug, Clone, Serialize)]
 pub struct ControllerState {
@@ -194,6 +215,11 @@ pub struct ControllerState {
     /// restarts as long as `server.identity` persists, but it was
     /// previously only ever visible by reading the process logs).
     pub server_hash: Option<String>,
+    /// The client's own destination hash, hex-encoded. `None` until the
+    /// client session is up. Rarely needed (the client dials out, it isn't
+    /// dialed into), but shown for parity with `server_hash` and for
+    /// debugging/path-tracing from the other side.
+    pub client_hash: Option<String>,
     /// Last-used (persisted) server/client start args, so the GUI can
     /// refill its form fields with what's actually configured/running
     /// instead of resetting to blank defaults on every page load — the
@@ -204,6 +230,10 @@ pub struct ControllerState {
     pub ds: DsStatus,
     pub servers: Vec<ServerEntry>,
     pub interfaces: Vec<InterfaceInfo>,
+    /// Clients that have identified themselves over an established link to
+    /// the running bridge server. Always empty when no server session is up
+    /// or none has identified yet.
+    pub connected_clients: Vec<ConnectedClientEntry>,
     /// Warnings from the last `resume()` (e.g. a saved component failed to
     /// restart). Empty when everything resumed cleanly.
     #[serde(default)]
@@ -446,6 +476,72 @@ impl BridgeController {
         match session {
             Some(s) => Ok(s.discovered().await.iter().map(ServerEntry::from_discovered).collect()),
             None => Ok(Vec::new()),
+        }
+    }
+
+    /// Clients that have identified themselves to the running bridge server.
+    /// Empty (not an error) when no server session is running.
+    pub async fn list_connected_clients(&self) -> Result<Vec<ConnectedClientEntry>> {
+        match self.server_session.as_ref() {
+            Some(s) => Ok(s
+                .connected_clients()
+                .await
+                .into_iter()
+                .map(|c| ConnectedClientEntry { identity_hash: hex::encode(c.identity_hash.as_bytes()) })
+                .collect()),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Re-announce the running bridge server's destination right now, using
+    /// the same name-derived app_data as its periodic announcer, instead of
+    /// waiting for the next tick.
+    pub async fn announce_now(&self) -> Result<()> {
+        let session = self
+            .server_session
+            .as_ref()
+            .ok_or_else(|| anyhow!("no bridge server session is running"))?;
+        let name = self.last_server_args.as_ref().and_then(|a| a.name.clone());
+        session.announce_now(sc_rns_bridge::server_announce_app_data(&name)).await
+    }
+
+    /// Manually trigger path discovery for `hash_hex` on the given session
+    /// role, then report what the engine knows about the route (hop count,
+    /// next hop, interface, last activity). Never hard-fails on an unknown/
+    /// unreachable destination — that just comes back as an empty result
+    /// with `error` explaining why.
+    pub async fn trace_path(&self, role: &str, hash_hex: &str) -> Result<PathTraceResult> {
+        let handle = self.session(role)?.handle();
+        let bytes = hex::decode(hash_hex.trim()).map_err(|e| anyhow!("invalid hash: {e}"))?;
+        let destination = DestinationHash::from_slice(&bytes)
+            .ok_or_else(|| anyhow!("hash must be 16 bytes (32 hex chars)"))?;
+
+        let request_err = handle.request_path(destination).await.err();
+
+        let route = handle
+            .engine_inspection_snapshot()
+            .await
+            .and_then(|snap| snap.routes.into_iter().find(|r| r.destination == destination));
+
+        match route {
+            Some(r) => Ok(PathTraceResult {
+                hops: Some(r.hops),
+                via: Some(match r.via {
+                    NextHop::Direct => "direct".to_string(),
+                    NextHop::Via(id) => format!("via {id:?}"),
+                }),
+                interface: Some(format!("{:?}", r.interface)),
+                error: None,
+            }),
+            None => Ok(PathTraceResult {
+                hops: None,
+                via: None,
+                interface: None,
+                error: Some(match request_err {
+                    Some(e) => format!("no route known; path request failed: {e:?}"),
+                    None => "no route known yet".to_string(),
+                }),
+            }),
         }
     }
 
@@ -870,11 +966,17 @@ impl BridgeController {
         };
         let servers = self.list_servers().await?;
         let interfaces = self.list_interfaces().unwrap_or_default();
+        let connected_clients = self.list_connected_clients().await.unwrap_or_default();
         let ds = self.ds.status();
         let server_hash = self
             .server_session
             .as_ref()
-            .and_then(|s| s.server_hash())
+            .and_then(|s| s.own_hash())
+            .map(|h| hex::encode(h.as_bytes()));
+        let client_hash = self
+            .client_session
+            .as_ref()
+            .and_then(|s| s.own_hash())
             .map(|h| hex::encode(h.as_bytes()));
         Ok(ControllerState {
             bridge_running: server_running || client_running,
@@ -882,11 +984,13 @@ impl BridgeController {
             server_running,
             client_running,
             server_hash,
+            client_hash,
             server_config: self.last_server_args.clone(),
             client_config: self.last_client_args.clone(),
             ds,
             servers,
             interfaces,
+            connected_clients,
             resume_errors: self.resume_errors.clone(),
         })
     }

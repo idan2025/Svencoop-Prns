@@ -39,6 +39,9 @@ use anyhow::{anyhow, Context, Result};
 use personal_rns::prelude::*;
 use personal_rns::{load_or_create_identity_secret, IdentitySecretFileError};
 use prns_core::engine::{SendToLink, SendToLinkPayload};
+use prns_core::identity::in_memory::InMemoryNodeIdentity;
+use prns_core::identity::{IdentityHash, IdentitySigner};
+use prns_core::routing::announce::emit::{AnnounceAppDataBytes, MAX_ANNOUNCE_APP_DATA_LEN};
 use prns_core::routing::delivery::Delivery;
 use prns_core::routing::links::LinkId;
 use tokio::net::UdpSocket;
@@ -69,17 +72,29 @@ pub async fn run_bridge(cfg: BridgeConfig) -> Result<()> {
 pub struct BridgeSession {
     handle: PrnsNodeHandle,
     discovered: Arc<RwLock<Vec<DiscoveredServer>>>,
-    server_hash: Option<DestinationHash>,
+    connected_clients: ConnectedClients,
+    own_hash: Option<DestinationHash>,
     role: BridgeRole,
     stop_tx: Option<oneshot::Sender<()>>,
     done: Option<oneshot::Receiver<()>>,
 }
 
 /// A discovered `sven-coop.server` destination heard via announce.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct DiscoveredServer {
     pub destination_hash: DestinationHash,
     pub last_seen: Instant,
+    /// The server's self-chosen display name, decoded from its announce
+    /// app_data (valid UTF-8 only). `None` if the announcer didn't send a
+    /// name-shaped payload (e.g. an older build, or non-UTF-8 bytes).
+    pub name: Option<String>,
+}
+
+/// A client identity learned by the server via `identify()` on link
+/// establishment (client-initiated — see `BridgeSession::connected_clients`).
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectedClient {
+    pub identity_hash: IdentityHash,
 }
 
 impl BridgeSession {
@@ -94,14 +109,43 @@ impl BridgeSession {
         self.role
     }
 
-    /// The host's own announced server hash (server side only).
-    pub fn server_hash(&self) -> Option<DestinationHash> {
-        self.server_hash
+    /// This node's own destination hash — the server's announced hash on the
+    /// server side, or the client's own destination hash on the client side.
+    pub fn own_hash(&self) -> Option<DestinationHash> {
+        self.own_hash
     }
 
     /// Snapshot of discovered `sven-coop.server` destinations (the browser list).
     pub async fn discovered(&self) -> Vec<DiscoveredServer> {
         self.discovered.read().await.clone()
+    }
+
+    /// Snapshot of clients that have `identify()`d themselves over an
+    /// established link (server side only — the client role never populates
+    /// this map since it never accepts links).
+    pub async fn connected_clients(&self) -> Vec<ConnectedClient> {
+        self.connected_clients
+            .read()
+            .await
+            .values()
+            .map(|&identity_hash| ConnectedClient { identity_hash })
+            .collect()
+    }
+
+    /// Re-announce this node's own destination right now, instead of waiting
+    /// for the periodic announcer's next tick.
+    pub async fn announce_now(&self, app_data: AnnounceAppData) -> Result<()> {
+        let destination = self
+            .own_hash
+            .ok_or_else(|| anyhow!("this session has no destination to announce"))?;
+        self.handle
+            .announce_now(AnnounceNow {
+                destination,
+                target: AnnounceTarget::AllInterfaces,
+                app_data,
+            })
+            .await
+            .map_err(|e| anyhow!("announce failed: {e:?}"))
     }
 
     /// Stop the node. Fire-and-forget: the dedicated thread tears down on its
@@ -149,13 +193,14 @@ impl BridgeSession {
             .destination_hash()
             .map_err(|e| anyhow!("invalid destination name: {e:?}"))?
         };
-        spawn_bridge_node(BridgeRole::Server, Some(precomputed_hash), move |discovered| async move {
+        spawn_bridge_node(BridgeRole::Server, Some(precomputed_hash), move |discovered, connected_clients| async move {
             let identity = load_identity(&args.identity)?;
+            let name_bytes = server_announce_name_bytes(&args.name);
             let destination = PreConfiguredDestination::Single {
                 app_name: SC_APP_NAME,
                 aspects: &[SC_ASPECT_SERVER],
                 identity: identity.clone(),
-                announce_app_data: b"sc-rns-bridge",
+                announce_app_data: &name_bytes,
                 proof: ProofStrategy::ProveAll,
                 link_requests: LinkRequestPolicy::AcceptAll,
                 ratchet: RatchetPolicy::NoRatchets,
@@ -196,6 +241,7 @@ impl BridgeSession {
             // Announcer.
             let announcer = handle.clone();
             let interval = args.announce_interval;
+            let announce_app_data = server_announce_app_data(&args.name);
             let _announce_task = tokio::spawn(async move {
                 let mut ticker = tokio::time::interval(Duration::from_secs(interval.max(1)));
                 ticker.tick().await;
@@ -205,7 +251,7 @@ impl BridgeSession {
                         .issue(PrnsCommand::AnnounceNow(AnnounceNow {
                             destination: server_hash,
                             target: AnnounceTarget::AllInterfaces,
-                            app_data: AnnounceAppData::Registered,
+                            app_data: announce_app_data.clone(),
                         }))
                         .is_none()
                     {
@@ -218,12 +264,16 @@ impl BridgeSession {
             let router_handle = handle.clone();
             let router_senders = link_senders.clone();
             let router_discovered = discovered.clone();
+            let router_connected_clients = connected_clients.clone();
             let _router_task = tokio::spawn(async move {
                 let mut event_rx = event_rx;
                 while let Some(event) = event_rx.recv().await {
                     match event {
-                        BridgeEvent::AnnounceHeard { destination } => {
-                            remember_server(&router_discovered, destination).await;
+                        BridgeEvent::AnnounceHeard { destination, name } => {
+                            remember_server(&router_discovered, destination, name).await;
+                        }
+                        BridgeEvent::PeerIdentified { link_id, identity } => {
+                            router_connected_clients.write().await.insert(link_id, identity);
                         }
                         BridgeEvent::LinkEstablished { link_id } => {
                             if router_senders.read().await.contains_key(&link_id) {
@@ -307,6 +357,7 @@ impl BridgeSession {
                             if let Some(tx) = router_senders.write().await.remove(&link_id) {
                                 let _ = tx.send(Vec::new()).await;
                             }
+                            router_connected_clients.write().await.remove(&link_id);
                         }
                         BridgeEvent::LinkData { link_id, bytes } => {
                             if let Some(tx) = router_senders.read().await.get(&link_id).cloned() {
@@ -328,8 +379,34 @@ impl BridgeSession {
     }
 
     pub async fn start_client(args: ClientArgs) -> Result<Self> {
-        spawn_bridge_node(BridgeRole::Client, None, move |discovered| async move {
+        // Computed up front for the same reason as the server's
+        // `precomputed_hash` above: identical inputs to the destination built
+        // again inside the spawned node thread, so the client's own hash is
+        // surfaced via `BridgeSession::own_hash()` instead of only ever being
+        // computable from inside the node thread.
+        let precomputed_hash = {
             let identity = load_identity(&args.identity)?;
+            PreConfiguredDestination::Single {
+                app_name: SC_APP_NAME,
+                aspects: &[SC_ASPECT_CLIENT],
+                identity,
+                announce_app_data: b"",
+                proof: ProofStrategy::ProveAll,
+                link_requests: LinkRequestPolicy::AcceptAll,
+                ratchet: RatchetPolicy::NoRatchets,
+                resource_strategy: ResourceStrategy::AcceptNone,
+                maximum_request_bytes: Default::default(),
+                request_endpoints: ServeMyRequestEndpoints::No,
+            }
+            .destination_hash()
+            .map_err(|e| anyhow!("invalid destination name: {e:?}"))?
+        };
+        spawn_bridge_node(BridgeRole::Client, Some(precomputed_hash), move |discovered, _connected_clients| async move {
+            let identity = load_identity(&args.identity)?;
+            // Sent to the server via `identify()` once a link is up, so the
+            // server can show this client's identity hash in its Connected
+            // Clients list — see the link-established handling below.
+            let client_identity_hash = InMemoryNodeIdentity::from_secret_key_bytes(&identity).identity_hash();
             let listen_addr: SocketAddr = format!("127.0.0.1:{}", args.listen_port)
                 .parse()
                 .with_context(|| format!("invalid --listen-port: {}", args.listen_port))?;
@@ -416,8 +493,8 @@ impl BridgeSession {
                 let mut event_rx = event_rx;
                 while let Some(event) = event_rx.recv().await {
                     match event {
-                        BridgeEvent::AnnounceHeard { destination } => {
-                            remember_server(&router_discovered, destination).await;
+                        BridgeEvent::AnnounceHeard { destination, name } => {
+                            remember_server(&router_discovered, destination, name).await;
                             let mut t = router_target.write().await;
                             if t.is_none() {
                                 info!(server_hash = ?destination.as_bytes(), "discovered Sven Coop server announce");
@@ -425,6 +502,9 @@ impl BridgeSession {
                             }
                         }
                         BridgeEvent::LinkEstablished { .. } => {}
+                        // The client is always the link initiator, so it never
+                        // becomes the identified peer of a link it accepted.
+                        BridgeEvent::PeerIdentified { .. } => {}
                         BridgeEvent::LinkClosed { link_id } => {
                             router_link_data.write().await.remove(&link_id);
                         }
@@ -496,6 +576,12 @@ impl BridgeSession {
                             }
                         };
                         debug!(src = %src, link = ?link_id, "link established");
+                        // Best-effort: lets the server show this client in its
+                        // Connected Clients list. Doesn't block the relay if it
+                        // fails (e.g. the server-side identify support is older).
+                        if let Err(e) = handle.identify(link_id, client_identity_hash).await {
+                            debug!(src = %src, link = ?link_id, error = ?e, "identify failed");
+                        }
 
                         let (udp_to_link_tx, mut udp_to_link_rx) = mpsc::channel::<Vec<u8>>(256);
                         links.write().await.insert(src, udp_to_link_tx);
@@ -572,16 +658,18 @@ impl BridgeSession {
 /// the handle + a stop channel, and signals `done` when the node exits.
 async fn spawn_bridge_node<B, Fut, NodeRun>(
     role: BridgeRole,
-    server_hash: Option<DestinationHash>,
+    own_hash: Option<DestinationHash>,
     build: B,
 ) -> Result<BridgeSession>
 where
-    B: FnOnce(Arc<RwLock<Vec<DiscoveredServer>>>) -> Fut + Send + 'static,
+    B: FnOnce(Arc<RwLock<Vec<DiscoveredServer>>>, ConnectedClients) -> Fut + Send + 'static,
     Fut: Future<Output = Result<(PrnsNodeHandle, NodeRun)>> + 'static,
     NodeRun: Future<Output = ()> + 'static,
 {
     let discovered: Arc<RwLock<Vec<DiscoveredServer>>> = Arc::new(RwLock::new(Vec::new()));
+    let connected_clients: ConnectedClients = Arc::new(RwLock::new(std::collections::HashMap::new()));
     let disc_for_thread = discovered.clone();
+    let cc_for_thread = connected_clients.clone();
     let (init_tx, init_rx) = oneshot::channel::<Result<(PrnsNodeHandle, oneshot::Sender<()>)>>();
     let (done_tx, done_rx) = oneshot::channel::<()>();
 
@@ -597,7 +685,7 @@ where
             };
             let local = LocalSet::new();
             let _ = rt.block_on(local.run_until(async move {
-                let (handle, node_run) = match build(disc_for_thread).await {
+                let (handle, node_run) = match build(disc_for_thread, cc_for_thread).await {
                     Ok(v) => v,
                     Err(e) => {
                         let _ = init_tx.send(Err(e));
@@ -623,7 +711,8 @@ where
     Ok(BridgeSession {
         handle,
         discovered,
-        server_hash,
+        connected_clients,
+        own_hash,
         role,
         stop_tx: Some(stop_tx),
         done: Some(done_rx),
@@ -631,12 +720,19 @@ where
 }
 
 /// Insert or refresh a discovered server in the browser list (dedup by hash).
-async fn remember_server(list: &Arc<RwLock<Vec<DiscoveredServer>>>, destination: DestinationHash) {
+/// `name` (from the announce's app_data, if any) always overwrites — a name
+/// change or a peer that stops sending one should show up on the next hear.
+async fn remember_server(
+    list: &Arc<RwLock<Vec<DiscoveredServer>>>,
+    destination: DestinationHash,
+    name: Option<String>,
+) {
     let mut l = list.write().await;
     if let Some(s) = l.iter_mut().find(|s| s.destination_hash == destination) {
         s.last_seen = Instant::now();
+        s.name = name;
     } else {
-        l.push(DiscoveredServer { destination_hash: destination, last_seen: Instant::now() });
+        l.push(DiscoveredServer { destination_hash: destination, last_seen: Instant::now(), name });
     }
 }
 
@@ -646,21 +742,26 @@ async fn remember_server(list: &Arc<RwLock<Vec<DiscoveredServer>>>, destination:
 
 #[derive(Debug)]
 enum BridgeEvent {
-    AnnounceHeard { destination: DestinationHash },
+    AnnounceHeard { destination: DestinationHash, name: Option<String> },
     LinkEstablished { link_id: LinkId },
+    PeerIdentified { link_id: LinkId, identity: IdentityHash },
     LinkClosed { link_id: LinkId },
     LinkData { link_id: LinkId, bytes: Vec<u8> },
 }
 
 fn funnel_event(event: PrnsEvent<'_>, tx: &mpsc::UnboundedSender<BridgeEvent>) {
     match event {
-        PrnsEvent::Diagnostic(Diagnostic::AnnounceHeard { destination, .. }) => {
-            let _ = tx.send(BridgeEvent::AnnounceHeard { destination });
+        PrnsEvent::Diagnostic(Diagnostic::AnnounceHeard { destination, app_data, .. }) => {
+            let name = announce_app_data_to_name(&app_data);
+            let _ = tx.send(BridgeEvent::AnnounceHeard { destination, name });
         }
         PrnsEvent::Diagnostic(Diagnostic::LinkEstablished(established)) => {
             let _ = tx.send(BridgeEvent::LinkEstablished {
                 link_id: established.link_id,
             });
+        }
+        PrnsEvent::Diagnostic(Diagnostic::PeerIdentified { link_id, identity }) => {
+            let _ = tx.send(BridgeEvent::PeerIdentified { link_id, identity });
         }
         PrnsEvent::Diagnostic(Diagnostic::LinkClosed { link_id, .. }) => {
             let _ = tx.send(BridgeEvent::LinkClosed { link_id });
@@ -675,7 +776,40 @@ fn funnel_event(event: PrnsEvent<'_>, tx: &mpsc::UnboundedSender<BridgeEvent>) {
     }
 }
 
+/// Decode an announce's app_data as a display name: valid, non-empty UTF-8
+/// only — anything else (binary payloads, older/other implementations that
+/// send something else, or nothing) yields `None` rather than mojibake.
+fn announce_app_data_to_name(app_data: &AnnounceAppDataBytes) -> Option<String> {
+    if app_data.is_empty() {
+        return None;
+    }
+    std::str::from_utf8(app_data).ok().map(str::trim).filter(|s| !s.is_empty()).map(String::from)
+}
+
 type LinkSenders = Arc<RwLock<std::collections::HashMap<LinkId, mpsc::Sender<Vec<u8>>>>>;
+type ConnectedClients = Arc<RwLock<std::collections::HashMap<LinkId, IdentityHash>>>;
+
+/// Announce app_data sent by builds with no `--name` configured — kept as
+/// the default so older clients/servers still recognize each other's
+/// announces as coming from this bridge.
+const DEFAULT_SERVER_ANNOUNCE_NAME: &[u8] = b"sc-rns-bridge";
+
+/// Build the bytes a server announces as its app_data: the configured name
+/// (trimmed, UTF-8, truncated to the wire budget), or the fixed default when
+/// unset/blank.
+pub fn server_announce_name_bytes(name: &Option<String>) -> Vec<u8> {
+    let trimmed = name.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let bytes = trimmed.map(str::as_bytes).unwrap_or(DEFAULT_SERVER_ANNOUNCE_NAME);
+    bytes[..bytes.len().min(MAX_ANNOUNCE_APP_DATA_LEN)].to_vec()
+}
+
+/// The `AnnounceAppData` for an `AnnounceNow` command, built from the same
+/// name bytes as the destination's registered app_data — shared by the
+/// periodic announcer and the manual "announce now" trigger.
+pub fn server_announce_app_data(name: &Option<String>) -> AnnounceAppData {
+    let bytes = server_announce_name_bytes(name);
+    AnnounceAppData::Data(AnnounceAppDataBytes::from_slice(&bytes).unwrap_or_default())
+}
 
 pub fn attach_interfaces(node: &PrnsNodeHandle, tcp: Option<&str>, auto: bool) {
     info!(tcp = ?tcp, auto, "attach_interfaces called");
@@ -729,3 +863,45 @@ fn load_identity(path: &Path) -> Result<ZeroizingIdentity> {
 }
 
 type ZeroizingIdentity = Zeroizing<[u8; IDENTITY_SECRET_KEY_LEN]>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_announce_name_bytes_uses_default_when_unset() {
+        assert_eq!(server_announce_name_bytes(&None), DEFAULT_SERVER_ANNOUNCE_NAME);
+        assert_eq!(server_announce_name_bytes(&Some("   ".to_string())), DEFAULT_SERVER_ANNOUNCE_NAME);
+    }
+
+    #[test]
+    fn server_announce_name_bytes_trims_and_uses_configured_name() {
+        assert_eq!(server_announce_name_bytes(&Some("  My Server  ".to_string())), b"My Server");
+    }
+
+    #[test]
+    fn server_announce_name_bytes_truncates_to_wire_budget() {
+        let long_name = "x".repeat(MAX_ANNOUNCE_APP_DATA_LEN + 100);
+        let bytes = server_announce_name_bytes(&Some(long_name));
+        assert_eq!(bytes.len(), MAX_ANNOUNCE_APP_DATA_LEN);
+    }
+
+    #[test]
+    fn server_announce_app_data_round_trips_through_announce_app_data_to_name() {
+        let name = Some("Idan's Server".to_string());
+        let app_data = server_announce_app_data(&name);
+        let AnnounceAppData::Data(bytes) = app_data else {
+            panic!("expected AnnounceAppData::Data");
+        };
+        assert_eq!(announce_app_data_to_name(&bytes), Some("Idan's Server".to_string()));
+    }
+
+    #[test]
+    fn announce_app_data_to_name_rejects_empty_and_non_utf8() {
+        let empty = AnnounceAppDataBytes::new();
+        assert_eq!(announce_app_data_to_name(&empty), None);
+
+        let invalid_utf8 = AnnounceAppDataBytes::from_slice(&[0xff, 0xfe]).unwrap();
+        assert_eq!(announce_app_data_to_name(&invalid_utf8), None);
+    }
+}

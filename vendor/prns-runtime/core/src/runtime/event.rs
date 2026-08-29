@@ -13,6 +13,7 @@ use crate::engine::{CommandId, HeldDropCause, LinkEstablished, RouteRemovalCause
 use crate::engine::{InstantMillis, Journaled, PersistenceFlushCause, PersistenceFlushTarget};
 use crate::identity::IdentityHash;
 use crate::interfaces::InterfaceId;
+use crate::routing::announce::emit::AnnounceAppDataBytes;
 use crate::routing::delivery::Delivery;
 use crate::routing::links::channel::MessageType;
 use crate::routing::links::request::RequestId;
@@ -97,6 +98,10 @@ pub enum Diagnostic {
         destination: DestinationHash,
         hops: u8,
         source_interface: InterfaceId,
+        /// The announce's app_data, copied out of the inbound frame (owned —
+        /// see the enum-level doc comment) so an app can read whatever the
+        /// announcer attached, e.g. a self-chosen display name.
+        app_data: AnnounceAppDataBytes,
     },
     /// The recipe's persistence store was seeded into this boot's engine before the first frame moved.
     PersistenceRestored {
@@ -260,6 +265,8 @@ impl<'a> From<Journaled<'a>> for PrnsEvent<'a> {
                     destination: observation.destination,
                     hops: observation.hops.0,
                     source_interface: observation.source_interface,
+                    app_data: AnnounceAppDataBytes::from_slice(observation.app_data)
+                        .unwrap_or_default(),
                 })
             }
             Journaled::SelfRatchetRotated { destination } => {

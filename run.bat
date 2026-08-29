@@ -28,17 +28,17 @@ if "!SVENDS!"=="" (
         if exist "!PREV!\svends.exe" set "SVENDS=!PREV!\svends.exe"
     )
 )
-if "!SVENDS!"=="" (
-    for %%P in (
-        "%ProgramFiles(x86)%\Steam\steamapps\common\Sven Co-op\svends.exe"
-        "%ProgramFiles%\Steam\steamapps\common\Sven Co-op\svends.exe"
-        "C:\Program Files (x86)\Steam\steamapps\common\Sven Co-op\svends.exe"
-        "C:\Program Files\Steam\steamapps\common\Sven Co-op\svends.exe"
-        "%USERPROFILE%\Steam\steamapps\common\Sven Co-op\svends.exe"
-    ) do (
-        if exist %%P set "SVENDS=%%~P"
-    )
-)
+REM Checked as flat chained "if ... if exist ... set" lines rather than a
+REM `for %%P in (...) do (...)` block: %ProgramFiles(x86)% and the literal
+REM "(x86)" in the hardcoded fallback path both contain a raw ")" that,
+REM inside a multi-line `(...)` block, breaks cmd's parenthesis-nesting count
+REM and aborts the whole script with "... was unexpected at this time." A
+REM single-line chained `if` has no block to miscount, so it's safe.
+if "!SVENDS!"=="" if exist "%ProgramFiles(x86)%\Steam\steamapps\common\Sven Co-op\svends.exe" set "SVENDS=%ProgramFiles(x86)%\Steam\steamapps\common\Sven Co-op\svends.exe"
+if "!SVENDS!"=="" if exist "%ProgramFiles%\Steam\steamapps\common\Sven Co-op\svends.exe" set "SVENDS=%ProgramFiles%\Steam\steamapps\common\Sven Co-op\svends.exe"
+if "!SVENDS!"=="" if exist "C:\Program Files (x86)\Steam\steamapps\common\Sven Co-op\svends.exe" set "SVENDS=C:\Program Files (x86)\Steam\steamapps\common\Sven Co-op\svends.exe"
+if "!SVENDS!"=="" if exist "C:\Program Files\Steam\steamapps\common\Sven Co-op\svends.exe" set "SVENDS=C:\Program Files\Steam\steamapps\common\Sven Co-op\svends.exe"
+if "!SVENDS!"=="" if exist "%USERPROFILE%\Steam\steamapps\common\Sven Co-op\svends.exe" set "SVENDS=%USERPROFILE%\Steam\steamapps\common\Sven Co-op\svends.exe"
 
 echo ==================================
 echo  Sven Co-op over Reticulum

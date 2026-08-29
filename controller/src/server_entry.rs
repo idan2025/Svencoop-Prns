@@ -16,6 +16,11 @@ pub struct ServerEntry {
     pub destination_hash: String,
     /// Seconds since we last heard an announce from this server.
     pub last_seen_ago_secs: u64,
+    /// The server's self-chosen display name, if its announce app_data
+    /// decoded as one — defaults to "sc-rns-bridge" when `--name` isn't set,
+    /// so this is `None` only for a non-UTF-8/empty payload (e.g. a very old
+    /// or unrelated Reticulum peer sharing this destination namespace).
+    pub name: Option<String>,
 }
 
 impl ServerEntry {
@@ -23,6 +28,7 @@ impl ServerEntry {
         Self {
             destination_hash: hex::encode(d.destination_hash.as_bytes()),
             last_seen_ago_secs: d.last_seen.elapsed().as_secs(),
+            name: d.name.clone(),
         }
     }
 }

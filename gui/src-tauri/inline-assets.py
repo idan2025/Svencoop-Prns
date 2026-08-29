@@ -54,7 +54,7 @@ __CSS__
       <h2>Servers</h2>
       <table id="server-table">
         <thead>
-          <tr><th>Server hash</th><th>Last seen</th><th></th></tr>
+          <tr><th>Name</th><th>Server hash</th><th>Last seen</th><th></th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -122,6 +122,7 @@ __CSS__
         <label>TCP bind (e.g. 0.0.0.0:4234) <input id="srv-tcp" type="text" placeholder="0.0.0.0:4234" /></label>
         <label>Auto (Wi-Fi/LAN) <input id="srv-auto" type="checkbox" /></label>
         <label>Announce interval (s) <input id="srv-ann" type="number" value="15" /></label>
+        <label>Server name (broadcast in announces) <input id="srv-name" type="text" placeholder="e.g. Idan's Sven Co-op" /></label>
         <div class="row">
           <button id="srv-start">Start</button>
           <button id="srv-restart">Restart</button>
@@ -133,8 +134,25 @@ __CSS__
           <div class="row">
             <input id="srv-hash" type="text" readonly />
             <button id="srv-hash-copy">Copy</button>
+            <button id="srv-announce-now">Announce now</button>
           </div>
         </div>
+        <fieldset id="srv-clients-box">
+          <legend>Connected clients</legend>
+          <table id="client-table">
+            <thead><tr><th>Client identity hash</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p id="srv-clients-empty" class="hint">No clients connected.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Trace a destination</legend>
+          <div class="row">
+            <input id="srv-trace-hash" type="text" placeholder="32 hex chars" />
+            <button id="srv-trace-btn">Trace</button>
+          </div>
+          <p id="srv-trace-result" class="hint"></p>
+        </fieldset>
         <p class="hint">Independent of the Client tab — both can run at once (on different ports) if you want to host and connect out from the same machine.</p>
       </div>
 
@@ -151,6 +169,21 @@ __CSS__
           <button id="cli-stop" class="danger">Stop</button>
         </div>
         <p id="cli-status-line"></p>
+        <div id="cli-hash-box" hidden>
+          <label>Client hash</label>
+          <div class="row">
+            <input id="cli-own-hash" type="text" readonly />
+            <button id="cli-hash-copy">Copy</button>
+          </div>
+        </div>
+        <fieldset>
+          <legend>Trace the server</legend>
+          <div class="row">
+            <button id="cli-trace-btn">Trace</button>
+          </div>
+          <p class="hint">Traces the server hash entered above (or the one auto-discovered, once known).</p>
+          <p id="cli-trace-result" class="hint"></p>
+        </fieldset>
         <p class="hint">Then pick a server in the browser and click Connect — it launches the game joined to localhost:&lt;listen port&gt;. Independent of the Bridge Server tab — both can run at once (on different ports).</p>
       </div>
 

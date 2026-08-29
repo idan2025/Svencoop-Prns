@@ -63,6 +63,7 @@ fn start_bridge_pair(sc_addr: std::net::SocketAddr) -> (u16, std::thread::JoinHa
         tcp: Some(format!("0.0.0.0:{tcp_port}")),
         auto: false,
         announce_interval: 1,
+        name: None,
     };
     let server_thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()

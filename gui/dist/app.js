@@ -168,24 +168,19 @@ $("srv-start").addEventListener("click", async () => {
     tcp: optStr("srv-tcp"),
     auto: checked("srv-auto"),
     announceInterval: num("srv-ann", 15),
+    name: optStr("srv-name"),
   });
   toast("Bridge server started.");
 });
 $("srv-restart").addEventListener("click", async () => { await call("restart_bridge_server"); toast("Bridge server restarted."); });
 $("srv-stop").addEventListener("click", async () => { await call("stop_bridge_server"); toast("Bridge server stopped."); });
-$("srv-hash-copy").addEventListener("click", async () => {
-  const value = $("srv-hash").value;
-  if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-    toast("Server hash copied.");
-  } catch (e) {
-    // Clipboard API needs a secure context — not guaranteed when the web
-    // panel is reached over plain http from a non-localhost address.
-    // Fall back to select-for-manual-copy instead of failing silently.
-    $("srv-hash").select();
-    toast("Couldn't copy automatically — selected it, press Ctrl+C.", "info");
-  }
+$("srv-hash-copy").addEventListener("click", async () => { await copyToClipboard("srv-hash", "Server hash"); });
+$("srv-announce-now").addEventListener("click", async () => {
+  await call("announce_now");
+  toast("Announced.");
+});
+$("srv-trace-btn").addEventListener("click", async () => {
+  await runTrace("server", val("srv-trace-hash", ""), "srv-trace-result");
 });
 
 // ---- client ----
@@ -200,6 +195,43 @@ $("cli-start").addEventListener("click", async () => {
 });
 $("cli-restart").addEventListener("click", async () => { await call("restart_client"); toast("Client restarted."); });
 $("cli-stop").addEventListener("click", async () => { await call("stop_client"); toast("Client stopped."); });
+$("cli-hash-copy").addEventListener("click", async () => { await copyToClipboard("cli-own-hash", "Client hash"); });
+$("cli-trace-btn").addEventListener("click", async () => {
+  await runTrace("client", val("cli-hash", ""), "cli-trace-result");
+});
+
+// Copy an input's value to the clipboard, falling back to select-for-manual-
+// copy when the Clipboard API is unavailable (needs a secure context, not
+// guaranteed when the web panel is reached over plain http).
+async function copyToClipboard(inputId, label) {
+  const el = $(inputId);
+  const value = el.value;
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    toast(label + " copied.");
+  } catch (e) {
+    el.select();
+    toast("Couldn't copy automatically — selected it, press Ctrl+C.", "info");
+  }
+}
+
+// Trigger a manual path trace and render the result inline under the
+// triggering control. Never throws on an unreachable/unknown destination —
+// the backend reports that as a result with `error` set, not a failure.
+async function runTrace(role, hash, resultElId) {
+  const el = $(resultElId);
+  if (!hash) { toast("Enter a destination hash to trace.", "error"); return; }
+  el.textContent = "Tracing…";
+  try {
+    const r = await call("trace_path", { role, hash });
+    el.textContent = r.error
+      ? "No route known: " + r.error
+      : `${r.hops} hop(s), ${r.via}, interface ${r.interface}`;
+  } catch (e) {
+    el.textContent = "Trace failed: " + e;
+  }
+}
 
 // ---- interfaces ----
 $("if-add-tcp").addEventListener("click", async () => {
@@ -268,14 +300,34 @@ async function connectAndLaunch(hash) {
 // ---- refresh / poll ----
 function serverRow(s) {
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td><code title="${s.destination_hash}">${s.destination_hash.slice(0, 16)}…</code></td><td>${s.last_seen_ago_secs}s ago</td>`;
+  tr.innerHTML = `<td>${s.name ? escapeHtml(s.name) : "—"}</td><td><code title="${s.destination_hash}">${s.destination_hash.slice(0, 16)}…</code></td><td>${s.last_seen_ago_secs}s ago</td>`;
   const td = document.createElement("td");
-  const btn = document.createElement("button");
-  btn.textContent = "Connect";
-  btn.addEventListener("click", () => connectAndLaunch(s.destination_hash));
-  td.appendChild(btn);
+  const connectBtn = document.createElement("button");
+  connectBtn.textContent = "Connect";
+  connectBtn.addEventListener("click", () => connectAndLaunch(s.destination_hash));
+  const traceBtn = document.createElement("button");
+  traceBtn.textContent = "Trace";
+  traceBtn.addEventListener("click", async () => {
+    try {
+      const r = await call("trace_path", { role: "client", hash: s.destination_hash });
+      toast(r.error ? "No route known: " + r.error : `${r.hops} hop(s), ${r.via}, interface ${r.interface}`, r.error ? "error" : "info");
+    } catch (e) { /* call() already toasted */ }
+  });
+  td.append(connectBtn, traceBtn);
   tr.appendChild(td);
   return tr;
+}
+
+function clientRow(c) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td><code title="${c.identity_hash}">${c.identity_hash.slice(0, 16)}…</code></td>`;
+  return tr;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
 }
 
 let formsPrefilled = false;
@@ -332,6 +384,7 @@ async function refresh() {
         $("srv-tcp").value = sc.tcp ?? "";
         $("srv-auto").checked = !!sc.auto;
         $("srv-ann").value = sc.announce_interval ?? 15;
+        $("srv-name").value = sc.name ?? "";
       }
       const cc = s.client_config;
       if (cc) {
@@ -350,6 +403,12 @@ async function refresh() {
     const ibody = $("iface-table").querySelector("tbody");
     ibody.innerHTML = "";
     s.interfaces.forEach((i) => ibody.appendChild(ifaceRow(i)));
+    // Connected clients (server side).
+    const clients = s.connected_clients || [];
+    const cbody = $("client-table").querySelector("tbody");
+    cbody.innerHTML = "";
+    $("srv-clients-empty").style.display = clients.length ? "none" : "block";
+    clients.forEach((c) => cbody.appendChild(clientRow(c)));
     // DS status + download progress.
     const ds = s.ds || {};
     const phase = ds.phase || "idle";
@@ -381,6 +440,12 @@ async function refresh() {
       $("srv-hash").value = s.server_hash;
     } else {
       $("srv-hash-box").hidden = true;
+    }
+    if (s.client_hash) {
+      $("cli-hash-box").hidden = false;
+      $("cli-own-hash").value = s.client_hash;
+    } else {
+      $("cli-hash-box").hidden = true;
     }
     refreshDsStats(!!ds.running);
     // Resume warnings (rare): surface inline so the operator notices.

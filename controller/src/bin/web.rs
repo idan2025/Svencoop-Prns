@@ -161,6 +161,7 @@ async fn api_dispatch(
                 tcp: r.tcp,
                 auto: r.auto,
                 announce_interval: r.announce_interval,
+                name: r.name,
             };
             ctrl.start_bridge_server(args).await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             ok()
@@ -172,6 +173,20 @@ async fn api_dispatch(
         "restart_bridge_server" => {
             ctrl.restart_bridge_server().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             ok()
+        }
+        "announce_now" => {
+            ctrl.announce_now().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            ok()
+        }
+
+        // ---- path trace ----
+        "trace_path" => {
+            let r: TracePathReq = parse(body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            let result = ctrl
+                .trace_path(&r.role, &r.hash)
+                .await
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            Ok(Json(json!(result)))
         }
 
         // ---- bridge client (host rarely uses this, but supported) ----
@@ -291,6 +306,8 @@ struct ServerStartReq {
     auto: bool,
     #[serde(default = "default_announce")]
     announce_interval: u64,
+    #[serde(default)]
+    name: Option<String>,
 }
 fn default_sc_host() -> String { "127.0.0.1".to_string() }
 fn default_announce() -> u64 { 15 }
@@ -369,4 +386,11 @@ struct RenameReq {
 #[serde(rename_all = "camelCase")]
 struct ServerHashReq {
     server_hash: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TracePathReq {
+    role: String,
+    hash: String,
 }

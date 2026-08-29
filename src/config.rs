@@ -50,6 +50,12 @@ pub struct ServerArgs {
     /// Announce interval in seconds.
     #[arg(long, default_value_t = 15)]
     pub announce_interval: u64,
+
+    /// Optional display name broadcast in this server's announces, so
+    /// clients can show something friendlier than a bare hash in the server
+    /// browser. Falls back to a fixed default when unset.
+    #[arg(long)]
+    pub name: Option<String>,
 }
 
 #[derive(Parser, Debug, Clone)]

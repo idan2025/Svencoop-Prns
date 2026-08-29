@@ -48,6 +48,7 @@ async fn start_bridge_server(
     tcp: Option<String>,
     auto: bool,
     announce_interval: u64,
+    name: Option<String>,
 ) -> Result<(), String> {
     let bundle_dir = bundle.inner().clone();
     with_ctrl(state, |ctrl| {
@@ -59,11 +60,17 @@ async fn start_bridge_server(
                 tcp,
                 auto,
                 announce_interval,
+                name,
             })
             .await
         })
     })
     .await
+}
+
+#[tauri::command]
+async fn announce_now(state: tauri::State<'_, CtrlState>) -> Result<(), String> {
+    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.announce_now().await })).await
 }
 
 #[tauri::command]
@@ -255,6 +262,17 @@ async fn connect_and_launch(state: tauri::State<'_, CtrlState>, server_hash: Str
     with_ctrl(state, |ctrl| Box::pin(async move { ctrl.connect_and_launch(server_hash).await })).await
 }
 
+// ---- path trace ----
+
+#[tauri::command]
+async fn trace_path(
+    state: tauri::State<'_, CtrlState>,
+    role: String,
+    hash: String,
+) -> Result<sc_rns_controller::PathTraceResult, String> {
+    with_ctrl(state, |ctrl| Box::pin(async move { ctrl.trace_path(&role, &hash).await })).await
+}
+
 // ---- snapshot ----
 
 #[derive(Serialize)]
@@ -264,11 +282,13 @@ struct StateSnapshot {
     server_running: bool,
     client_running: bool,
     server_hash: Option<String>,
+    client_hash: Option<String>,
     server_config: Option<ServerArgs>,
     client_config: Option<ClientArgs>,
     ds: sc_rns_controller::DsStatus,
     servers: Vec<sc_rns_controller::ServerEntry>,
     interfaces: Vec<sc_rns_controller::InterfaceInfo>,
+    connected_clients: Vec<sc_rns_controller::ConnectedClientEntry>,
     #[serde(default)]
     resume_errors: Vec<String>,
 }
@@ -285,11 +305,13 @@ async fn get_state(state: tauri::State<'_, CtrlState>) -> Result<StateSnapshot, 
                 server_running: s.server_running,
                 client_running: s.client_running,
                 server_hash: s.server_hash,
+                client_hash: s.client_hash,
                 server_config: s.server_config,
                 client_config: s.client_config,
                 ds: s.ds,
                 servers: s.servers,
                 interfaces: s.interfaces,
+                connected_clients: s.connected_clients,
                 resume_errors: s.resume_errors,
             })
         })
@@ -336,6 +358,8 @@ pub fn run() {
             start_bridge_server,
             stop_bridge_server,
             restart_bridge_server,
+            announce_now,
+            trace_path,
             start_client,
             stop_client,
             restart_client,

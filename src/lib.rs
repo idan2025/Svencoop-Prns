@@ -16,7 +16,10 @@ pub mod framing;
 pub mod relay;
 
 pub use config::{BridgeConfig, BridgeRole, ClientArgs, ServerArgs};
-pub use relay::{run_bridge, BridgeSession, DiscoveredServer};
+pub use relay::{
+    run_bridge, server_announce_app_data, server_announce_name_bytes, BridgeSession,
+    ConnectedClient, DiscoveredServer,
+};
 
 pub const SC_APP_NAME: &str = "sven-coop";
 pub const SC_ASPECT_SERVER: &str = "server";

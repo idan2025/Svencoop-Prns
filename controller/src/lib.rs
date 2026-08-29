@@ -18,7 +18,10 @@ pub mod server_entry;
 pub mod steamcmd;
 
 pub use a2s::{A2sInfo, A2sPlayer, A2sStats};
-pub use controller::{BridgeController, ControllerState, InterfaceDescriptor, InterfaceInfo, Settings};
+pub use controller::{
+    BridgeController, ConnectedClientEntry, ControllerState, InterfaceDescriptor, InterfaceInfo,
+    PathTraceResult, Settings,
+};
 pub use ds::{DsManager, DsStartArgs, DsStatus};
 pub use game::GameLauncher;
 pub use server_entry::ServerEntry;

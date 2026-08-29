@@ -176,6 +176,7 @@ fn emit_diagnostic(diagnostic: &Diagnostic) {
             destination,
             hops,
             source_interface,
+            ..
         } => tracing::debug!(
             target: "prns.runtime",
             event = "announce_heard",
