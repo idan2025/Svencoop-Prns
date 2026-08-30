@@ -1,6 +1,7 @@
 # Sven Co-op over Reticulum — host release.
 #
-#   docker compose up --build
+# Pulls the published image from ghcr.io instead of building locally.
+#   docker compose pull && docker compose up -d
 #
 # First run: open http://<host>:8080, click "Start / pull" in the DS tab to
 # download the Sven Co-op dedicated server (~2.74 GB) into the `svends` volume,
@@ -14,10 +15,7 @@
 
 services:
   host:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: svencoop-prns-host:latest
+    image: ghcr.io/idan2025/svencoop-prns:0.1.10
     container_name: svencoop-prns-host
     ports:
       - "8080:8080/tcp"    # web control panel
